@@ -73,7 +73,7 @@ pmxdchk/
 ├── vignettes/                     # User-facing documentation
 ├── data/                          # Built-in example datasets
 ├── data-raw/                      # Scripts to generate example datasets
-├── documents/                     # Project reference documents
+├── docs/                          # Project reference documents
 └── .github/workflows/             # CI/CD pipelines
 ```
 
