@@ -9,6 +9,8 @@ Description: A Shiny application for visualization and data quality checking
 License: Apache License (>= 2)
 URL: https://github.com/pharmaverse/pmxdchk
 BugReports: https://github.com/pharmaverse/pmxdchk/issues
+Depends:
+    R (>= 4.1.0)
 Imports:
     bslib,
     config,

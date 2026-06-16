@@ -5,3 +5,8 @@ dev_history.R
 ^dev$
 $run_dev.*
 ^.here$
+^docs$
+^AGENTS\.md$
+^CLAUDE\.md$
+^\.github$
+^LICENSE\.md$

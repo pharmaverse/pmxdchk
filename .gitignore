@@ -51,3 +51,4 @@ rsconnect/
 # Claude Code (local only)
 CLAUDE.md
 .claude/
+AGENTS.md
