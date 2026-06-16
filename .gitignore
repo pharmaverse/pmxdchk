@@ -51,6 +51,3 @@ rsconnect/
 # Claude Code (local only)
 CLAUDE.md
 .claude/
-
-# Generated sample data for local testing (reproducible via dev/make_sample_csv.R)
-dev/*.csv
