@@ -15,17 +15,45 @@ app_ui <- function(request) {
       theme = bslib::bs_theme(version = 5),
       sidebar = bslib::sidebar(
         title = "Controls",
-        mod_settings_ui("settings"),
-        actionButton("run", "Run checks", class = "btn-primary")
+        uiOutput("run_ui"),
+        uiOutput("run_status"),
+        tags$hr(),
+        mod_settings_ui("settings")
       ),
       bslib::nav_panel(
         "Data",
         mod_data_upload_ui("upload"),
-        mod_check_studytype_ui("studytype")
+        mod_check_studytype_ui("studytype"),
+        bslib::card(
+          bslib::card_header("3. Run checks"),
+          uiOutput("run_data_ui"),
+          helpText("Runs all applicable checks on the mapped dataset.")
+        )
       ),
       bslib::nav_panel("Overview", mod_overview_ui("overview")),
       bslib::nav_panel("Profiles", mod_profile_ui("profile")),
-      bslib::nav_panel("Findings", mod_findings_ui("findings"))
+      bslib::nav_panel("Findings", mod_findings_ui("findings")),
+      bslib::nav_spacer(),
+      bslib::nav_panel(
+        "About",
+        bslib::card(
+          bslib::card_header("pmxdchk"),
+          tags$p(
+            "Data quality checking and review for NONMEM / ADPPK ",
+            "pharmacometric datasets."
+          ),
+          tags$p(tags$strong("Workflow:")),
+          tags$ol(
+            tags$li("Data tab: upload a CSV, confirm the variable mapping, ",
+                    "and confirm the inferred study type."),
+            tags$li("Click Run checks (sidebar or Data tab)."),
+            tags$li("Overview: dataset summary and severity of findings."),
+            tags$li("Profiles: per-subject concentration-time review."),
+            tags$li("Findings: inspect, triage, and export results.")
+          )
+        )
+      ),
+      bslib::nav_item(bslib::input_dark_mode(id = "dark_mode"))
     )
   )
 }

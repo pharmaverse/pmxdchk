@@ -9,11 +9,27 @@
 mod_overview_ui <- function(id) {
   ns <- NS(id)
   tagList(
+    uiOutput(ns("notice")),
+    uiOutput(ns("severity_bar")),
     bslib::layout_columns(
-      bslib::value_box("Subjects", textOutput(ns("n_subjects"))),
-      bslib::value_box("Records", textOutput(ns("n_records"))),
-      bslib::value_box("Observations", textOutput(ns("n_obs"))),
-      bslib::value_box("Doses", textOutput(ns("n_doses")))
+      bslib::value_box(
+        "Subjects", textOutput(ns("n_subjects")),
+        showcase = icon("users")
+      ),
+      bslib::value_box(
+        "Records", textOutput(ns("n_records")),
+        showcase = icon("table-list")
+      ),
+      bslib::value_box(
+        "Observations", textOutput(ns("n_obs")),
+        showcase = icon("vial")
+      ),
+      bslib::value_box(
+        "Doses", textOutput(ns("n_doses")),
+        showcase = icon("syringe")
+      ),
+      bslib::value_box("BLQ % (obs)", textOutput(ns("blq_pct"))),
+      bslib::value_box("Missing DV % (obs)", textOutput(ns("miss_pct")))
     ),
     bslib::layout_columns(
       bslib::card(
@@ -52,6 +68,20 @@ mod_overview_ui <- function(id) {
 #' @noRd
 mod_overview_server <- function(id, data_r, results_r) {
   moduleServer(id, function(input, output, session) {
+    output$notice <- renderUI({
+      if (is.null(data_r())) {
+        return(ui_notice(
+          "Upload a dataset and confirm the mapping on the Data tab."
+        ))
+      }
+      if (is.null(results_r())) {
+        return(ui_notice(
+          "Run checks to populate the missingness panel.", "secondary"
+        ))
+      }
+      NULL
+    })
+
     evid <- reactive(suppressWarnings(as.numeric(data_r()$EVID)))
 
     output$n_subjects <- renderText({
@@ -69,6 +99,45 @@ mod_overview_server <- function(id, data_r, results_r) {
     output$n_doses <- renderText({
       req(data_r())
       as.character(sum(evid() %in% c(1, 4), na.rm = TRUE))
+    })
+
+    output$blq_pct <- renderText({
+      req(data_r())
+      d <- data_r()
+      obs <- evid() == 0 & !is.na(evid())
+      flag_col <- detect_col(names(d), "^BLQ|^CENS$")
+      if (is.na(flag_col) || sum(obs) == 0) {
+        return("n/a")
+      }
+      paste0(round(100 * sum(is_positive_flag(d[[flag_col]]) & obs) / sum(obs), 1), "%")
+    })
+
+    output$miss_pct <- renderText({
+      req(data_r())
+      d <- data_r()
+      obs <- evid() == 0 & !is.na(evid())
+      if (sum(obs) == 0) {
+        return("n/a")
+      }
+      dv <- suppressWarnings(as.numeric(d$DV))
+      paste0(round(100 * sum(is.na(dv) & obs) / sum(obs), 1), "%")
+    })
+
+    output$severity_bar <- renderUI({
+      df <- results_r()
+      if (is.null(df)) {
+        return(NULL)
+      }
+      fl <- df[df$status == "flag", ]
+      n_sev <- function(s) sum(fl$severity == s)
+      div(
+        class = "mb-3",
+        ui_badge(paste0(n_sev("Critical"), " Critical"), "danger"),
+        ui_badge(paste0(n_sev("High"), " High"), "warning"),
+        ui_badge(paste0(n_sev("Medium"), " Medium"), "secondary"),
+        ui_badge(paste0(sum(df$status == "pass"), " pass"), "success"),
+        ui_badge(paste0(sum(df$status == "skip"), " skip"), "light")
+      )
     })
 
     output$dv_hist <- renderPlot({

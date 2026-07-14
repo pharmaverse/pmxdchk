@@ -9,6 +9,7 @@
 mod_profile_ui <- function(id) {
   ns <- NS(id)
   tagList(
+    uiOutput(ns("notice")),
     bslib::card(
       full_screen = TRUE,
       bslib::card_header("Subject"),
@@ -23,12 +24,18 @@ mod_profile_ui <- function(id) {
           actionButton(ns("prev"), "Previous"),
           actionButton(ns("nxt"), "Next")
         )
-      )
+      ),
+      uiOutput(ns("counter"))
     ),
     bslib::card(
       full_screen = TRUE,
       bslib::card_header("Concentration-time profile"),
       plotOutput(ns("plot"))
+    ),
+    bslib::card(
+      full_screen = TRUE,
+      bslib::card_header("Checks flagged for this subject"),
+      DT::DTOutput(ns("subject_checks"))
     ),
     bslib::card(
       full_screen = TRUE,
@@ -48,6 +55,21 @@ mod_profile_ui <- function(id) {
 #' @noRd
 mod_profile_server <- function(id, data_r, results_r) {
   moduleServer(id, function(input, output, session) {
+    output$notice <- renderUI({
+      if (is.null(data_r())) {
+        return(ui_notice(
+          "Confirm the variable mapping on the Data tab to browse profiles."
+        ))
+      }
+      if (is.null(results_r())) {
+        return(ui_notice(
+          "Run checks to overlay flags. Profiles show without flags until then.",
+          "secondary"
+        ))
+      }
+      NULL
+    })
+
     data_id <- reactive({
       d <- data_r()
       d[[".rowid"]] <- seq_len(nrow(d))
@@ -94,6 +116,16 @@ mod_profile_server <- function(id, data_r, results_r) {
       }
     })
 
+    output$counter <- renderUI({
+      s <- subjects()
+      req(length(s) > 0, input$subject)
+      i <- match(input$subject, s)
+      tags$small(
+        class = "text-muted",
+        sprintf("Subject %d of %d", i, length(s))
+      )
+    })
+
     current <- reactive({
       req(input$subject)
       d <- data_id()
@@ -129,10 +161,51 @@ mod_profile_server <- function(id, data_r, results_r) {
           linetype = "dashed", color = "grey60"
         )
       }
+      p <- p + ggplot2::labs(title = paste("Subject", input$subject))
       if (isTRUE(input$log_y)) {
         p <- p + ggplot2::scale_y_log10()
+        n_np <- sum(obs$DV <= 0, na.rm = TRUE)
+        if (n_np > 0) {
+          p <- p + ggplot2::labs(caption = paste0(
+            n_np, " BLQ / non-positive point(s) omitted on the log scale."
+          ))
+        }
       }
       p
+    })
+
+    subject_findings <- reactive({
+      req(input$subject)
+      if (is.null(results_r())) {
+        return(NULL)
+      }
+      objs <- attr(results_r(), "results")
+      rows <- current()$.rowid
+      hits <- lapply(names(objs), function(cid) {
+        fr <- objs[[cid]]$flagged_records
+        if (!is.null(fr) && ".rowid" %in% names(fr) && any(fr$.rowid %in% rows)) {
+          data.frame(
+            check_id = cid, severity = objs[[cid]]$severity,
+            message = objs[[cid]]$message, stringsAsFactors = FALSE
+          )
+        } else {
+          NULL
+        }
+      })
+      dplyr::bind_rows(hits)
+    })
+
+    output$subject_checks <- DT::renderDT({
+      sf <- subject_findings()
+      validate(need(
+        !is.null(sf) && nrow(sf) > 0,
+        "No checks flagged this subject (run checks first, or none flagged)."
+      ))
+      DT::datatable(
+        sf,
+        options = list(pageLength = 5, dom = "tp"),
+        rownames = FALSE
+      )
     })
 
     output$events <- DT::renderDT({

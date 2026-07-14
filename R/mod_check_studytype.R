@@ -10,7 +10,7 @@ mod_check_studytype_ui <- function(id) {
   ns <- NS(id)
   bslib::card(
     full_screen = TRUE,
-    bslib::card_header("Study type"),
+    bslib::card_header("2. Study type"),
     DT::DTOutput(ns("inferred")),
     checkboxGroupInput(
       ns("confirmed"),

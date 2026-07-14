@@ -12,14 +12,14 @@ mod_data_upload_ui <- function(id) {
     bslib::card(
       full_screen = TRUE,
       height = "600px",
-      bslib::card_header("Upload & variable mapping"),
+      bslib::card_header("1. Upload & variable mapping"),
       fileInput(
         ns("file"), "NMPK dataset (CSV)",
         accept = c(".csv", ".txt")
       ),
       uiOutput(ns("map_status")),
       uiOutput(ns("map_panel")),
-      actionButton(ns("confirm"), "Confirm mapping", class = "btn-primary")
+      uiOutput(ns("confirm_ui"))
     ),
     bslib::card(
       full_screen = TRUE,
@@ -32,6 +32,7 @@ mod_data_upload_ui <- function(id) {
         ),
         textInput(ns("filter_val"), "Contains")
       ),
+      uiOutput(ns("preview_note")),
       DT::DTOutput(ns("preview"))
     )
   )
@@ -54,6 +55,22 @@ mod_data_upload_server <- function(id) {
 
     guesses <- reactive(guess_mapping(names(raw())))
 
+    core_vars <- c("ID", "TIME", "EVID", "MDV", "DV", "AMT")
+
+    current_mapping <- reactive({
+      canon <- names(nmpk_var_dictionary())
+      m <- vapply(
+        canon, function(x) input[[paste0("map_", x)]] %||% NA_character_,
+        character(1)
+      )
+      if (all(is.na(m))) {
+        return(guesses())
+      }
+      m[!is.na(m) & m != ""]
+    })
+
+    core_missing <- reactive(setdiff(core_vars, names(current_mapping())))
+
     observeEvent(raw(), {
       updateSelectizeInput(
         session, "filter_col",
@@ -68,7 +85,9 @@ mod_data_upload_server <- function(id) {
       col <- input$filter_col
       val <- input$filter_val
       if (!is.null(col) && nzchar(col) && !is.null(val) && nzchar(val)) {
-        hit <- grepl(tolower(val), tolower(as.character(d[[col]])), fixed = TRUE)
+        hit <- grepl(
+          tolower(val), tolower(as.character(d[[col]])), fixed = TRUE
+        )
         hit[is.na(hit)] <- FALSE
         d <- d[hit, , drop = FALSE]
       }
@@ -96,30 +115,77 @@ mod_data_upload_server <- function(id) {
 
     output$map_status <- renderUI({
       req(raw())
-      core <- c("ID", "TIME", "EVID", "MDV", "DV", "AMT")
-      missing <- setdiff(core, names(guesses()))
-      if (length(missing) == 0) {
-        div(
-          class = "text-success",
-          "All core variables detected. Review the mapping and confirm."
+      cm <- current_mapping()
+      n_all <- length(nmpk_var_dictionary())
+      n_core <- sum(core_vars %in% names(cm))
+      missing <- core_missing()
+      badges <- div(
+        class = "mb-2",
+        ui_badge(paste0("mapped ", length(cm), "/", n_all), "info"),
+        ui_badge(
+          paste0("core ", n_core, "/", length(core_vars)),
+          if (n_core == length(core_vars)) "success" else "warning"
         )
+      )
+      status <- if (length(missing) == 0) {
+        ui_notice("All core variables mapped. Ready to confirm.", "success")
       } else {
-        div(
-          class = "text-warning",
+        ui_notice(
           paste0(
-            "Core variables not auto-detected: ",
-            paste(missing, collapse = ", "), ". Map them below."
-          )
+            "Core variables not yet mapped: ",
+            paste(missing, collapse = ", "), "."
+          ),
+          "warning"
         )
       }
+      tagList(badges, status)
     })
+
+    output$confirm_ui <- renderUI({
+      req(raw())
+      btn <- actionButton(
+        ns("confirm"), "Confirm mapping",
+        class = "btn-primary"
+      )
+      if (length(core_missing()) > 0) {
+        btn$attribs$disabled <- "disabled"
+      }
+      btn
+    })
+
+    output$preview_note <- renderUI({
+      req(raw())
+      tags$small(
+        class = "text-muted",
+        sprintf(
+          "Showing %d of %d rows (first 500 previewed).",
+          nrow(preview_data()), nrow(raw())
+        )
+      )
+    })
+
+    observeEvent(input$confirm, {
+      showNotification(
+        "Mapping confirmed. Review the study type, then Run checks.",
+        type = "message", duration = 6
+      )
+    })
+
+    map_groups <- list(
+      "Core (required)" = c("ID", "TIME", "EVID", "MDV", "DV", "AMT"),
+      "Timing" = "NTIME",
+      "Dosing" = c("CMT", "RATE", "DUR", "II", "ADDL", "SS", "DVID", "ROUTE"),
+      "Occasion / period" = c("OCC", "DOSNO", "PERIOD"),
+      "Study" = "STUDYID",
+      "Covariates" = c("AGE", "WT", "BMI", "SEX", "RACE")
+    )
 
     output$map_panel <- renderUI({
       req(raw())
       cols <- names(raw())
       g <- guesses()
       labels <- nmpk_var_labels()
-      sels <- lapply(names(nmpk_var_dictionary()), function(canon) {
+      make_select <- function(canon) {
         selectizeInput(
           ns(paste0("map_", canon)),
           label = paste0(canon, " — ", labels[[canon]]),
@@ -127,8 +193,18 @@ mod_data_upload_server <- function(id) {
           selected = if (canon %in% names(g)) unname(g[canon]) else "",
           options = list(dropdownParent = "body")
         )
+      }
+      panels <- lapply(names(map_groups), function(gname) {
+        body <- do.call(
+          bslib::layout_columns,
+          c(list(col_widths = 6), lapply(map_groups[[gname]], make_select))
+        )
+        bslib::accordion_panel(gname, body)
       })
-      do.call(tagList, sels)
+      do.call(
+        bslib::accordion,
+        c(panels, list(open = "Core (required)", multiple = TRUE))
+      )
     })
 
     eventReactive(input$confirm, {

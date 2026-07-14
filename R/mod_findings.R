@@ -28,9 +28,9 @@ finding_detail_table <- function(result) {
 
 #' Findings and triage module UI
 #'
-#' Lists all findings, shows the detail (reason and flagged records) for the
-#' selected one, lets the reviewer triage it (accept / reject / comment), and
-#' exports the triaged findings and the flagged records to CSV.
+#' Master-detail review surface: a filterable, colour-coded findings table on
+#' the left; the reason, flagged records, and triage controls for the selected
+#' finding on the right; CSV export below.
 #'
 #' @param id Module id.
 #' @return A UI definition.
@@ -38,33 +38,52 @@ finding_detail_table <- function(result) {
 mod_findings_ui <- function(id) {
   ns <- NS(id)
   tagList(
-    bslib::card(
-      full_screen = TRUE,
-      bslib::card_header("Findings"),
-      helpText("Click a row to see its reason and flagged records below."),
-      DT::DTOutput(ns("table"))
-    ),
-    bslib::card(
-      full_screen = TRUE,
-      bslib::card_header("Finding detail"),
-      uiOutput(ns("detail_summary")),
-      DT::DTOutput(ns("detail_table"))
-    ),
-    bslib::card(
-      full_screen = TRUE,
-      bslib::card_header("Triage selected finding"),
-      uiOutput(ns("selected")),
-      radioButtons(
-        ns("state"), "Decision",
-        choices = c("Untriaged" = "untriaged", "Accept" = "accept",
-                    "Reject (false positive)" = "reject"),
-        inline = TRUE
+    uiOutput(ns("notice")),
+    bslib::layout_columns(
+      col_widths = c(7, 5),
+      bslib::card(
+        full_screen = TRUE,
+        bslib::card_header("Findings"),
+        bslib::layout_columns(
+          col_widths = c(4, 4, 4),
+          selectInput(
+            ns("f_status"), "Status",
+            choices = c("(all)" = "", "flag", "pass", "skip"),
+            selected = "", selectize = FALSE
+          ),
+          selectInput(
+            ns("f_severity"), "Severity",
+            choices = c("(all)" = "", "Critical", "High", "Medium"),
+            selected = "", selectize = FALSE
+          ),
+          selectInput(
+            ns("f_domain"), "Domain",
+            choices = c("(all)" = ""), selected = "", selectize = FALSE
+          )
+        ),
+        DT::DTOutput(ns("table"))
       ),
-      textInput(ns("comment"), "Comment", width = "100%"),
-      actionButton(ns("save"), "Save triage", class = "btn-primary")
+      tagList(
+        bslib::card(
+          full_screen = TRUE,
+          bslib::card_header("Finding detail"),
+          uiOutput(ns("detail_summary")),
+          DT::DTOutput(ns("detail_table"))
+        ),
+        bslib::card(
+          bslib::card_header("Triage"),
+          radioButtons(
+            ns("state"), "Decision",
+            choices = c("Untriaged" = "untriaged", "Accept" = "accept",
+                        "Reject (false positive)" = "reject"),
+            inline = TRUE
+          ),
+          textInput(ns("comment"), "Comment", width = "100%"),
+          actionButton(ns("save"), "Save triage", class = "btn-primary")
+        )
+      )
     ),
     bslib::card(
-      full_screen = TRUE,
       bslib::card_header("Export"),
       downloadButton(ns("dl_findings"), "Findings (CSV)"),
       downloadButton(ns("dl_flagged"), "Flagged records (CSV)")
@@ -83,6 +102,13 @@ mod_findings_server <- function(id, results_r) {
   moduleServer(id, function(input, output, session) {
     triage <- reactiveVal(list())
 
+    output$notice <- renderUI({
+      if (is.null(results_r())) {
+        ui_notice("Run checks on the Data tab to populate findings.")
+      }
+    })
+
+    # All findings, triage columns attached, ordered flag-first by severity.
     findings <- reactive({
       req(results_r())
       tr <- triage()
@@ -93,30 +119,62 @@ mod_findings_server <- function(id, results_r) {
       df$triage_comment <- vapply(
         df$check_id, function(x) tr[[x]]$comment %||% "", character(1)
       )
+      st <- match(df$status, c("flag", "error", "skip", "pass"))
+      sev <- match(df$severity, c("Critical", "High", "Medium"))
+      df[order(st, sev, df$check_id), ]
+    })
+
+    observeEvent(results_r(), {
+      df <- results_r()
+      req(df)
+      updateSelectInput(
+        session, "f_domain",
+        choices = c("(all)" = "", sort(unique(df$domain)))
+      )
+    })
+
+    filtered <- reactive({
+      df <- findings()
+      if (nzchar(input$f_status %||% "")) df <- df[df$status == input$f_status, ]
+      if (nzchar(input$f_severity %||% "")) {
+        df <- df[df$severity == input$f_severity, ]
+      }
+      if (nzchar(input$f_domain %||% "")) df <- df[df$domain == input$f_domain, ]
       df
     })
 
     output$table <- DT::renderDT(
       {
+        df <- filtered()
+        df$message <- ifelse(
+          nchar(df$message) > 80,
+          paste0(substr(df$message, 1, 79), "…"), df$message
+        )
         DT::datatable(
-          findings(),
+          df[, c(
+            "check_id", "domain", "severity", "status", "n_flagged",
+            "message", "triage_state"
+          )],
           selection = "single",
           options = list(pageLength = 25, scrollX = TRUE),
           rownames = FALSE
-        )
+        ) |>
+          DT::formatStyle(
+            "status",
+            target = "row",
+            backgroundColor = DT::styleEqual(
+              c("flag", "error", "skip", "pass"),
+              c("#fde8e8", "#fde8e8", "#f4f4f4", "#eafaea")
+            )
+          )
       },
-      server = TRUE
+      server = FALSE
     )
 
     selected_id <- reactive({
       row <- input$table_rows_selected
       req(length(row) == 1)
-      findings()$check_id[row]
-    })
-
-    output$selected <- renderUI({
-      req(selected_id())
-      strong(selected_id())
+      filtered()$check_id[row]
     })
 
     selected_result <- reactive({
@@ -127,10 +185,13 @@ mod_findings_server <- function(id, results_r) {
     output$detail_summary <- renderUI({
       r <- selected_result()
       req(r)
+      sev_type <- switch(r$severity,
+        Critical = "danger", High = "warning", "secondary"
+      )
       tagList(
         tags$strong(paste0(r$check_id, " — ", r$title)),
         tags$br(),
-        tags$span(class = "badge bg-secondary", r$severity),
+        ui_badge(r$severity, sev_type),
         tags$span(
           style = "margin-left:8px;",
           paste0("status: ", r$status, " | flagged: ", r$n_flagged)
@@ -165,6 +226,7 @@ mod_findings_server <- function(id, results_r) {
       tr <- triage()
       tr[[selected_id()]] <- list(state = input$state, comment = input$comment)
       triage(tr)
+      showNotification("Triage saved.", type = "message", duration = 2)
     })
 
     flagged_all <- reactive({
