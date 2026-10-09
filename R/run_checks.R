@@ -96,15 +96,17 @@ apply_mapping <- function(data, mapping = NULL) {
 #' @noRd
 order_checks <- function(registry) {
   ids <- names(registry)
-  ordered <- character()
-  visit <- function(id) {
+  visit <- function(id, ordered) {
     if (id %in% ordered) {
-      return(invisible())
+      return(ordered)
     }
-    for (dep in intersect(registry[[id]]$requires, ids)) visit(dep)
-    ordered[[length(ordered) + 1L]] <<- id
+    for (dep in intersect(registry[[id]]$requires, ids)) {
+      ordered <- visit(dep, ordered)
+    }
+    c(ordered, id)
   }
-  for (id in ids) visit(id)
+  ordered <- character()
+  for (id in ids) ordered <- visit(id, ordered)
   registry[ordered]
 }
 
