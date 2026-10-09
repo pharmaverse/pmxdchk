@@ -13,6 +13,12 @@
 - **A Shiny app** to load a dataset, look at it, work through the findings with the affected records and subject profiles next to each one, record a decision per finding, and export the results.
 - **A headless entry point**, `run_nmpk_checks()`, that runs the same checks from a script.
 
+## Try it in your browser
+
+**<https://pharmaverse.github.io/pmxdchk/>**
+
+No installation needed. The demo runs entirely in your browser (WebAssembly): data you load are not uploaded to any server. The first load takes about a minute. Click *Example with issues*, *Confirm mapping*, then *Run checks*.
+
 ## Installation
 
 ```r
