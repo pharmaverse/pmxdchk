@@ -14,18 +14,27 @@ app_server <- function(input, output, session) {
   results_rv <- reactiveVal(NULL)
   last_run <- reactiveVal(NULL)
 
+  # Results belong to one dataset: drop them when another one is confirmed.
+  observeEvent(upload(), {
+    results_rv(NULL)
+    last_run(NULL)
+  }, ignoreNULL = FALSE)
+
   do_run <- function() {
     if (!isTRUE(ready())) {
       showNotification(
-        "Upload a dataset and confirm the variable mapping first.",
+        "Load a dataset and confirm the variable mapping first.",
         type = "warning"
       )
       return(invisible())
     }
-    res <- run_nmpk_checks(
-      data_r(),
-      study_type = study_type(),
-      thresholds = thresholds()
+    res <- withProgress(
+      run_nmpk_checks(
+        data_r(),
+        study_type = study_type(),
+        thresholds = thresholds()
+      ),
+      message = "Running checks..."
     )
     results_rv(res)
     last_run(list(
@@ -33,19 +42,11 @@ app_server <- function(input, output, session) {
       study_type = study_type(),
       thresholds = thresholds()
     ))
-    showNotification(
-      sprintf(
-        "Checks complete: %d checks run, %d flagged.",
-        nrow(res), sum(res$status == "flag")
-      ),
-      type = "message"
-    )
-    bslib::nav_select("main_nav", "Overview", session = session)
+    bslib::nav_select("main_nav", "Findings", session = session)
   }
   observeEvent(input$run, do_run())
   observeEvent(input$run_data, do_run())
 
-  output$run_ui <- renderUI(run_button("run", ready()))
   output$run_data_ui <- renderUI(run_button("run_data", ready()))
 
   stale <- reactive({
@@ -57,25 +58,73 @@ app_server <- function(input, output, session) {
       !identical(lr$thresholds, thresholds())
   })
 
-  output$run_status <- renderUI({
-    lr <- last_run()
-    if (is.null(lr)) {
+  # One line under the navbar: which dataset is loaded and where the run stands.
+  output$status_bar <- renderUI({
+    if (!isTRUE(ready())) {
       return(NULL)
     }
-    tagList(
-      tags$small(
-        class = "text-muted",
-        paste0("Last run: ", format(lr$time, "%H:%M:%S"))
+    res <- results_rv()
+    state <- if (is.null(res)) {
+      "Checks not run yet."
+    } else if (isTRUE(stale())) {
+      "Study type or thresholds changed since the last run."
+    } else {
+      sprintf(
+        "%d of %d checks flagged, run at %s.",
+        sum(res$status == "flag"), nrow(res),
+        format(last_run()$time, "%H:%M")
+      )
+    }
+    type <- if (isTRUE(stale())) "warning" else "light"
+    urgent <- is.null(res) || isTRUE(stale())
+    div(
+      class = paste0(
+        "alert alert-", type,
+        " d-flex align-items-center gap-3 py-2 mx-3 mt-3 mb-0"
       ),
-      if (isTRUE(stale())) {
-        ui_notice("Settings changed — re-run checks.", "warning")
-      }
+      tags$strong(upload()$name),
+      tags$span(
+        sprintf(
+          "%d subjects, %d records.",
+          dplyr::n_distinct(data_r()$ID), nrow(data_r())
+        ),
+        state
+      ),
+      actionButton(
+        "run", if (is.null(res)) "Run checks" else "Re-run checks",
+        class = paste(
+          "btn-sm ms-auto",
+          if (urgent) "btn-primary" else "btn-outline-primary"
+        ),
+        icon = icon("play")
+      )
     )
   })
 
   results <- reactive(results_rv())
 
-  mod_overview_server("overview", data_r, results)
-  mod_profile_server("profile", data_r, results)
-  mod_findings_server("findings", results)
+  mod_overview_server("overview", data_r)
+  to_profiles <- mod_findings_server("findings", data_r, results)
+  mod_profile_server("profile", data_r, results, to_profiles)
+
+  observeEvent(to_profiles(), {
+    bslib::nav_select("main_nav", "Profiles", session = session)
+  })
+
+  output$library <- DT::renderDT({
+    DT::datatable(
+      check_catalogue(),
+      colnames = c(
+        "Check", "Title", "Domain", "Severity", "Applies to", "Rule",
+        "What to do"
+      ),
+      filter = "top",
+      class = "compact stripe",
+      options = list(
+        paging = FALSE, scrollX = TRUE, dom = "ft",
+        columnDefs = list(list(className = "text-nowrap", targets = 0))
+      ),
+      rownames = FALSE
+    )
+  })
 }

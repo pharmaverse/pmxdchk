@@ -1,7 +1,8 @@
 #' Individual profile browser module UI
 #'
 #' Per-subject concentration-time profile with flagged records overlaid, dose
-#' markers, prev/next navigation, and the subject's event table.
+#' markers, prev/next navigation, a filter by check, and the subject's event
+#' table.
 #'
 #' @param id Module id.
 #' @return A UI definition.
@@ -11,36 +12,47 @@ mod_profile_ui <- function(id) {
   tagList(
     uiOutput(ns("notice")),
     bslib::card(
-      full_screen = TRUE,
       bslib::card_header("Subject"),
       bslib::layout_columns(
+        col_widths = c(4, 3, 3, 2),
+        fill = FALSE,
+        selectInput(
+          ns("show"), "Show subjects",
+          choices = c("All subjects" = "all"), selectize = FALSE
+        ),
         selectizeInput(
           ns("subject"), "Subject", choices = NULL,
           options = list(dropdownParent = "body")
         ),
-        checkboxInput(ns("flagged_only"), "Flagged subjects only", FALSE),
-        checkboxInput(ns("log_y"), "Log y-axis", TRUE),
         div(
-          actionButton(ns("prev"), "Previous"),
-          actionButton(ns("nxt"), "Next")
-        )
+          class = "pt-4",
+          div(
+            class = "btn-group",
+            actionButton(ns("prev"), "Previous"),
+            actionButton(ns("nxt"), "Next")
+          )
+        ),
+        div(class = "pt-4", checkboxInput(ns("log_y"), "Log y-axis", TRUE))
       ),
       uiOutput(ns("counter"))
     ),
-    bslib::card(
-      full_screen = TRUE,
-      bslib::card_header("Concentration-time profile"),
-      plotOutput(ns("plot"))
-    ),
-    bslib::card(
-      full_screen = TRUE,
-      bslib::card_header("Checks flagged for this subject"),
-      DT::DTOutput(ns("subject_checks"))
+    bslib::layout_columns(
+      col_widths = c(7, 5),
+      bslib::card(
+        full_screen = TRUE,
+        bslib::card_header("Concentration-time profile"),
+        plotOutput(ns("plot"))
+      ),
+      bslib::card(
+        full_screen = TRUE,
+        bslib::card_header("Checks flagged for this subject"),
+        DT::DTOutput(ns("subject_checks"), fill = FALSE)
+      )
     ),
     bslib::card(
       full_screen = TRUE,
       bslib::card_header("Event records"),
-      DT::DTOutput(ns("events"))
+      DT::DTOutput(ns("events"), fill = FALSE)
     )
   )
 }
@@ -51,9 +63,12 @@ mod_profile_ui <- function(id) {
 #' @param data_r A reactive returning the mapped dataset.
 #' @param results_r A reactive returning the findings tibble from
 #'   [run_nmpk_checks()] (with check results attached).
+#' @param focus_r A reactive returning `list(check_id, subject, time)`; when it
+#'   changes, the subject filter switches to that check and subject.
 #' @return Invisibly `NULL`.
 #' @noRd
-mod_profile_server <- function(id, data_r, results_r) {
+mod_profile_server <- function(id, data_r, results_r,
+                               focus_r = reactive(NULL)) {
   moduleServer(id, function(input, output, session) {
     output$notice <- renderUI({
       if (is.null(data_r())) {
@@ -63,7 +78,7 @@ mod_profile_server <- function(id, data_r, results_r) {
       }
       if (is.null(results_r())) {
         return(ui_notice(
-          "Run checks to overlay flags. Profiles show without flags until then.",
+          "Run checks to overlay flags; until then profiles show without them.",
           "secondary"
         ))
       }
@@ -71,139 +86,160 @@ mod_profile_server <- function(id, data_r, results_r) {
     })
 
     data_id <- reactive({
-      d <- data_r()
-      d[[".rowid"]] <- seq_len(nrow(d))
-      d
+      req(data_r())
+      add_review_columns(data_r())
     })
 
-    flagged_rows <- reactive({
-      objs <- attr(results_r(), "results")
-      ids <- lapply(objs, function(r) {
-        fr <- r$flagged_records
-        if (!is.null(fr) && ".rowid" %in% names(fr)) fr$.rowid else NULL
+    flagged_results <- reactive({
+      if (is.null(results_r())) {
+        return(list())
+      }
+      Filter(function(r) r$status == "flag", attr(results_r(), "results"))
+    })
+
+    # Record-level hits (.rowid) and subject-level hits (ID) per flagged check.
+    row_hits <- reactive({
+      hits <- lapply(flagged_results(), function(r) {
+        rows <- as.integer(r$flagged_records[[".rowid"]])
+        tibble::tibble(.rowid = rows, check_id = rep(r$check_id, length(rows)))
       })
-      unique(unlist(ids, use.names = FALSE))
+      empty <- tibble::tibble(.rowid = integer(), check_id = character())
+      dplyr::bind_rows(c(list(empty), unname(hits)))
+    })
+    subject_hits <- reactive({
+      hits <- lapply(flagged_results(), function(r) {
+        ids <- result_subject_ids(r)
+        tibble::tibble(ID = ids, check_id = rep(r$check_id, length(ids)))
+      })
+      empty <- tibble::tibble(ID = character(), check_id = character())
+      dplyr::bind_rows(c(list(empty), unname(hits)))
+    })
+
+    observeEvent(flagged_results(), {
+      hits <- subject_hits()
+      checks <- Filter(
+        function(r) r$check_id %in% hits$check_id, flagged_results()
+      )
+      by_check <- vapply(checks, function(r) r$check_id, character(1))
+      names(by_check) <- vapply(checks, function(r) {
+        sprintf(
+          "%s \u2014 %s (%d)", r$check_id, r$title,
+          sum(hits$check_id == r$check_id)
+        )
+      }, character(1))
+      choices <- c("All subjects" = "all")
+      if (length(by_check) > 0) {
+        choices <- c(
+          choices,
+          stats::setNames(
+            "any",
+            sprintf("Flagged by any check (%d)", length(unique(hits$ID)))
+          ),
+          by_check
+        )
+      }
+      keep <- if (isTRUE(input$show %in% choices)) input$show else "all"
+      updateSelectInput(session, "show", choices = choices, selected = keep)
+    })
+
+    wanted_subject <- reactiveVal(NULL)
+    observeEvent(focus_r(), {
+      target <- focus_r()$check_id
+      if (!target %in% subject_hits()$check_id) {
+        target <- "any"
+      }
+      wanted_subject(focus_r()$subject)
+      updateSelectInput(session, "show", selected = target)
+      updateSelectizeInput(session, "subject", selected = focus_r()$subject)
     })
 
     subjects <- reactive({
-      req(data_id())
-      d <- data_id()
-      ids <- unique(d$ID)
-      if (isTRUE(input$flagged_only)) {
-        req(results_r())
-        flagged_ids <- unique(d$ID[d$.rowid %in% flagged_rows()])
-        ids <- ids[ids %in% flagged_ids]
+      ids <- unique(as.character(data_id()$ID))
+      show <- input$show %||% "all"
+      if (show == "all") {
+        return(ids)
       }
-      ids
+      hits <- subject_hits()
+      if (show != "any") {
+        hits <- hits[hits$check_id == show, ]
+      }
+      ids[ids %in% hits$ID]
     })
 
     observeEvent(subjects(), {
-      updateSelectInput(session, "subject", choices = subjects())
+      keep <- intersect(wanted_subject(), subjects())
+      updateSelectizeInput(
+        session, "subject",
+        choices = subjects(), selected = if (length(keep) > 0) keep
+      )
     })
 
-    observeEvent(input$prev, {
+    step_subject <- function(by) {
       s <- subjects()
-      i <- match(input$subject, s)
-      if (!is.na(i) && i > 1) {
-        updateSelectInput(session, "subject", selected = s[i - 1])
+      i <- match(input$subject, s) + by
+      if (!is.na(i) && i >= 1 && i <= length(s)) {
+        updateSelectizeInput(session, "subject", selected = s[i])
       }
-    })
-    observeEvent(input$nxt, {
-      s <- subjects()
-      i <- match(input$subject, s)
-      if (!is.na(i) && i < length(s)) {
-        updateSelectInput(session, "subject", selected = s[i + 1])
-      }
-    })
+    }
+    observeEvent(input$prev, step_subject(-1))
+    observeEvent(input$nxt, step_subject(1))
 
     output$counter <- renderUI({
       s <- subjects()
-      req(length(s) > 0, input$subject)
-      i <- match(input$subject, s)
+      if (length(s) == 0) {
+        return(tags$small(class = "text-muted", "No subjects match."))
+      }
+      req(input$subject)
       tags$small(
         class = "text-muted",
-        sprintf("Subject %d of %d", i, length(s))
+        sprintf("Subject %d of %d", match(input$subject, s), length(s))
       )
     })
 
     current <- reactive({
       req(input$subject)
       d <- data_id()
-      keep <- as.character(d$ID) == as.character(input$subject)
-      sub <- d[keep, , drop = FALSE]
-      sub$TIME <- suppressWarnings(as.numeric(sub$TIME))
-      sub$DV <- suppressWarnings(as.numeric(sub$DV))
-      sub$.evid <- suppressWarnings(as.numeric(sub$EVID))
-      sub$flagged <- sub$.rowid %in% flagged_rows()
+      sub <- d[as.character(d$ID) == input$subject, , drop = FALSE]
+      hits <- row_hits()
+      hits <- hits[hits$.rowid %in% sub$.rowid, ]
+      by_row <- tapply(hits$check_id, hits$.rowid, paste, collapse = ", ")
+      sub$flagged_by <- unname(by_row[as.character(sub$.rowid)])
+      sub$flagged_by[is.na(sub$flagged_by)] <- ""
+      focus <- input$show %||% "all"
+      sub$flagged <- if (focus %in% c("all", "any")) {
+        sub$flagged_by != ""
+      } else {
+        sub$.rowid %in% hits$.rowid[hits$check_id == focus]
+      }
       sub
     })
 
     output$plot <- renderPlot({
-      sub <- current()
-      obs <- sub[sub$.evid == 0 & !is.na(sub$DV), , drop = FALSE]
-      doses <- sub[sub$.evid %in% c(1, 4), , drop = FALSE]
-      req(nrow(obs) > 0)
-
-      p <- ggplot2::ggplot(obs, ggplot2::aes(x = TIME, y = DV)) +
-        ggplot2::geom_line(color = "grey40") +
-        ggplot2::geom_point(ggplot2::aes(color = flagged), size = 2.5) +
-        ggplot2::scale_color_manual(
-          values = c("FALSE" = "black", "TRUE" = "red"),
-          labels = c("FALSE" = "ok", "TRUE" = "flagged"),
-          drop = FALSE
-        ) +
-        ggplot2::labs(x = "TIME", y = "DV", color = NULL) +
-        ggplot2::theme_minimal()
-
-      if (nrow(doses) > 0) {
-        p <- p + ggplot2::geom_vline(
-          data = doses, ggplot2::aes(xintercept = TIME),
-          linetype = "dashed", color = "grey60"
-        )
-      }
-      p <- p + ggplot2::labs(title = paste("Subject", input$subject))
-      if (isTRUE(input$log_y)) {
-        p <- p + ggplot2::scale_y_log10()
-        n_np <- sum(obs$DV <= 0, na.rm = TRUE)
-        if (n_np > 0) {
-          p <- p + ggplot2::labs(caption = paste0(
-            n_np, " BLQ / non-positive point(s) omitted on the log scale."
-          ))
-        }
-      }
+      p <- plot_subject_profile(current(), input$subject, isTRUE(input$log_y))
+      validate(need(!is.null(p), "This subject has no observations to plot."))
       p
     })
 
-    subject_findings <- reactive({
-      req(input$subject)
-      if (is.null(results_r())) {
-        return(NULL)
-      }
-      objs <- attr(results_r(), "results")
-      rows <- current()$.rowid
-      hits <- lapply(names(objs), function(cid) {
-        fr <- objs[[cid]]$flagged_records
-        if (!is.null(fr) && ".rowid" %in% names(fr) && any(fr$.rowid %in% rows)) {
-          data.frame(
-            check_id = cid, severity = objs[[cid]]$severity,
-            message = objs[[cid]]$message, stringsAsFactors = FALSE
-          )
-        } else {
-          NULL
-        }
-      })
-      dplyr::bind_rows(hits)
-    })
-
     output$subject_checks <- DT::renderDT({
-      sf <- subject_findings()
+      req(input$subject)
+      ids <- c(
+        subject_hits()$check_id[subject_hits()$ID == input$subject],
+        row_hits()$check_id[row_hits()$.rowid %in% current()$.rowid]
+      )
       validate(need(
-        !is.null(sf) && nrow(sf) > 0,
+        length(ids) > 0,
         "No checks flagged this subject (run checks first, or none flagged)."
       ))
+      df <- results_r()
+      df <- df[df$check_id %in% ids, c("check_id", "severity", "message")]
       DT::datatable(
-        sf,
-        options = list(pageLength = 5, dom = "tp"),
+        df,
+        colnames = c("Check", "Severity", "Finding"),
+        class = "compact",
+        options = list(
+          pageLength = 6, dom = "tp",
+          columnDefs = list(list(className = "text-nowrap", targets = 0))
+        ),
         rownames = FALSE
       )
     })
@@ -211,18 +247,27 @@ mod_profile_server <- function(id, data_r, results_r) {
     output$events <- DT::renderDT({
       sub <- current()
       cols <- intersect(
-        c(".rowid", "TIME", "EVID", "MDV", "DV", "AMT", "flagged"), names(sub)
+        c(
+          ".rowid", "TIME", "NTIME", "EVID", "MDV", "DV", "AMT", "CMT", "DVID",
+          "OCC", "VISIT", "flagged_by"
+        ),
+        names(sub)
       )
-      DT::datatable(
-        sub[, cols, drop = FALSE],
+      events <- signif_doubles(sub[, cols, drop = FALSE])
+      names(events)[match(c(".rowid", "flagged_by"), cols)] <- c(
+        "row", "flagged by"
+      )
+      table <- DT::datatable(
+        events,
+        class = "compact nowrap",
         options = list(pageLength = 15, scrollX = TRUE),
         rownames = FALSE
-      ) |>
-        DT::formatStyle(
-          "flagged",
-          target = "row",
-          backgroundColor = DT::styleEqual(TRUE, "#fde8e8")
-        )
+      )
+      DT::formatStyle(
+        table, names(events),
+        valueColumns = "flagged by",
+        backgroundColor = DT::styleEqual("", "", "var(--bs-danger-bg-subtle)")
+      )
     })
 
     invisible(NULL)
