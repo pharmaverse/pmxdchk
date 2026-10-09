@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pmxdchk check reference</title>
+<style>
+:root { --fg: #1c2024; --muted: #60656b; --line: #d9dde1; --bg: #fff;
+  --head: #f4f6f8; }
+@media (prefers-color-scheme: dark) { :root { --fg: #e6e8ea;
+  --muted: #9aa1a8; --line: #3a4046; --bg: #16191c; --head: #20252a; } }
+body { font: 15px/1.5 system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 1100px; margin: 0 auto;
+  padding: 24px 20px 60px; }
+h1 { font-size: 26px; margin: 0 0 4px; }
+h2 { font-size: 18px; margin: 32px 0 8px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px;
+  border-bottom: 1px solid var(--line); }
+th { background: var(--head); font-size: 13px; }
+td:first-child { width: 24%; } td:nth-child(2) { width: 9%; }
+td:last-child { width: 15%; }
+code { font-size: 12px; color: var(--muted); }
+.muted { color: var(--muted); } .todo { margin: 6px 0 0; }
+.sev { font-size: 12px; font-weight: 600; padding: 1px 7px;
+  border-radius: 4px; color: #fff; white-space: nowrap; }
+.critical { background: #c62828; } .high { background: #b26a00; }
+.medium { background: #5f6b76; }
+ul { margin: 6px 0; padding-left: 20px; }
+.wrap { overflow-x: auto; }
+@media print { body { max-width: none; } tr { break-inside: avoid; } }
+</style>
+</head>
+<body>
+<h1>pmxdchk check reference</h1>
+<p class="muted">41 checks, generated 2026-10-09 from pmxdchk 0.0.0.9000.</p>
+<h2>Terms</h2>
+<ul>
+<li><strong>Dose record</strong>: EVID 1 or 4.
+ <strong>Observation</strong>: EVID 0.
+ <strong>Quantifiable observation</strong>: an observation with MDV = 0
+ and a non-missing DV.</li>
+<li><strong>Analyte or compartment group</strong>: observations are
+ compared only with others that share the same DVID and CMT, when those
+ take more than one value among observations.</li>
+<li><strong>Result</strong>: a check flags, passes, or is skipped. It is
+ skipped when a variable it needs is not mapped, when it does not apply to
+ the confirmed study type, or when a check it depends on was skipped.</li>
+<li><strong>Robust |z|</strong>: distance from the median divided by the
+ median absolute deviation (MAD, scaled to a standard deviation).</li>
+</ul>
+<h2>Thresholds</h2>
+<div class="wrap"><table>
+<thead><tr><th>Threshold</th><th>Default</th><th>Used by</th></tr></thead>
+<tbody>
+<tr><td>Outlier cutoff (robust |z|)</td><td>5</td><td>CORE-TIME-004, CORE-DOSE-002, CORE-OBS-005</td></tr>
+<tr><td>Covariate boxplot fence (x IQR)</td><td>3</td><td>CORE-COV-004, CORE-COV-006</td></tr>
+<tr><td>Predose cutoff (% of Cmax)</td><td>5</td><td>CORE-OBS-004</td></tr>
+<tr><td>Minimum quantifiable records</td><td>2</td><td>CORE-OBS-006</td></tr>
+</tbody></table></div>
+<div class="wrap"><h2>Study type</h2>
+<table>
+<thead><tr><th>Check</th><th>Severity</th><th>What it flags</th><th>Runs</th></tr></thead>
+<tbody>
+<tr><td><strong>Study Type Inference and User Confirmation</strong><br><code>CORE-STUDYTYPE-001</code></td><td><span class="sev critical">Critical</span></td><td>Infers study type from the variables present: ADDL/II/SS, an occasion variable, or repeated dose records indicate multiple dose; RATE/DUR indicate IV; more than one DVID among observation records indicates multi-analyte; more than one STUDYID indicates an integrated dataset.<p class="todo"><span class="muted">What to do:</span> Confirm or correct the study type on the Data tab. It decides which conditional checks run.</p></td><td>Always</td></tr>
+</tbody>
+</table></div>
+<div class="wrap"><h2>Dataset structure</h2>
+<table>
+<thead><tr><th>Check</th><th>Severity</th><th>What it flags</th><th>Runs</th></tr></thead>
+<tbody>
+<tr><td><strong>Core NONMEM Variable Presence</strong><br><code>CORE-STRUCT-001</code></td><td><span class="sev critical">Critical</span></td><td>ID, TIME, EVID, MDV, DV, and AMT must all be present after variable mapping.<p class="todo"><span class="muted">What to do:</span> Map the missing variable on the Data tab, or add it to the dataset. Checks that need it are skipped until then.</p></td><td>Always</td></tr>
+<tr><td><strong>Variable Type and Numeric Parsability</strong><br><code>CORE-STRUCT-002</code></td><td><span class="sev critical">Critical</span></td><td>ID, TIME, EVID, MDV, DV, AMT, RATE, II, ADDL, CMT, and DVID must contain only values that parse as numbers. NONMEM cannot read character values in these items.<p class="todo"><span class="muted">What to do:</span> Look for text placeholders such as 'BLQ' or '&lt;LLOQ' and for character subject identifiers. Recode them to numeric values; map a numeric ID rather than USUBJID.</p></td><td>Always</td></tr>
+<tr><td><strong>EVID Value Validity</strong><br><code>CORE-STRUCT-003</code></td><td><span class="sev critical">Critical</span></td><td>EVID must be 0 (observation), 1 (dose), 2 (other), 3 (reset), or 4 (reset and dose). Missing EVID is also flagged.<p class="todo"><span class="muted">What to do:</span> Correct the event type in the dataset programming; other values make NONMEM stop or misread the record.</p></td><td>Always<br><span class="muted">Needs EVID</span></td></tr>
+<tr><td><strong>Observed Record and Dose Record Counts</strong><br><code>CORE-STRUCT-004</code></td><td><span class="sev medium">Medium</span></td><td>Descriptive count of subjects, records, observations (EVID 0), and doses (EVID 1 or 4). Never flags.<p class="todo"><span class="muted">What to do:</span> Compare the counts with the analysis plan and the source data.</p></td><td>Always<br><span class="muted">Needs ID, EVID</span></td></tr>
+<tr><td><strong>Duplicate Records</strong><br><code>CORE-STRUCT-005</code></td><td><span class="sev high">High</span></td><td>Flags records sharing the same ID, TIME, EVID and, when present, CMT, DVID, OCC, DOSNO. Each is labelled as an exact duplicate row or as the same key with different values (for example a different DV or AMT).<p class="todo"><span class="muted">What to do:</span> Remove exact duplicates. For records with the same key but different values, check the source: usually a repeated assay result or a merge error, and only one should remain.</p></td><td>Always<br><span class="muted">Needs ID, TIME, EVID</span></td></tr>
+<tr><td><strong>Missingness by Event Type</strong><br><code>CORE-STRUCT-006</code></td><td><span class="sev medium">Medium</span></td><td>Summarizes missing values per variable and event type. Flags only missingness that is not expected: ID, TIME, EVID, or MDV on any record, AMT on dose records, and covariates on any record. Missing DV on dose records and missing AMT on observation records are expected.<p class="todo"><span class="muted">What to do:</span> Fill or impute unexpected missing values before modeling; NONMEM reads a blank covariate as zero.</p></td><td>Always<br><span class="muted">Needs EVID, MDV</span></td></tr>
+<tr><td><strong>EVID=4 Uniqueness Within Subject and Period</strong><br><code>CORE-STRUCT-007</code></td><td><span class="sev high">High</span></td><td>Flags subjects, or subject-periods when OCC, PERIOD, or DOSNO exists, with more than one EVID = 4 record.<p class="todo"><span class="muted">What to do:</span> Confirm each reset is intended, for example one per crossover period. Unintended resets wipe the amounts in all compartments.</p></td><td>Multiple Dose, Integrated<br><span class="muted">Needs ID, EVID</span></td></tr>
+</tbody>
+</table></div>
+<div class="wrap"><h2>Time</h2>
+<table>
+<thead><tr><th>Check</th><th>Severity</th><th>What it flags</th><th>Runs</th></tr></thead>
+<tbody>
+<tr><td><strong>TIME Non-Decreasing Within Subject</strong><br><code>CORE-TIME-001</code></td><td><span class="sev critical">Critical</span></td><td>Reads records in dataset row order, without sorting, within each subject (and OCC when present). Flags a record whose TIME is lower than the previous record, unless it is a reset record (EVID 3 or 4).<p class="todo"><span class="muted">What to do:</span> Sort the dataset by ID and TIME. NONMEM stops when time decreases within an individual.</p></td><td>Always<br><span class="muted">Needs ID, TIME</span></td></tr>
+<tr><td><strong>Same-Time Event Pattern Review</strong><br><code>CORE-TIME-002</code></td><td><span class="sev medium">Medium</span></td><td>Flags two or more dose records (EVID 1 or 4) with the same ID, TIME, and CMT.<p class="todo"><span class="muted">What to do:</span> Check for duplicated dosing or a merge error. Split doses into different compartments at the same time are not flagged.</p></td><td>Always<br><span class="muted">Needs ID, TIME, EVID</span></td></tr>
+<tr><td><strong>Negative TIME Review</strong><br><code>CORE-TIME-003</code></td><td><span class="sev medium">Medium</span></td><td>Negative TIME is kept as it is and summarized. Flags negative TIME on a dose record and, when VISIT is mapped, on a record whose visit differs from the visit of the subject's first dose. Other negative times are predose samples and are not flagged.<p class="todo"><span class="muted">What to do:</span> Correct negative dose times. For samples outside the first-dose visit, check the reference dose used to derive TIME.</p></td><td>Always<br><span class="muted">Needs TIME</span></td></tr>
+<tr><td><strong>Actual vs Nominal Time Descriptive Difference</strong><br><code>CORE-TIME-004</code></td><td><span class="sev medium">Medium</span></td><td>Among observations with the same nominal time (and analyte or compartment), flags records whose actual-minus-nominal difference is more than the outlier cutoff (robust |z|) away from the median difference for that time point.<p class="todo"><span class="muted">What to do:</span> Check the sample date and time in the source. A large deviation can indicate a wrong date or a sample assigned to the wrong nominal time.</p></td><td>Always<br><span class="muted">Needs TIME</span></td></tr>
+</tbody>
+</table></div>
+<div class="wrap"><h2>Dosing</h2>
+<table>
+<thead><tr><th>Check</th><th>Severity</th><th>What it flags</th><th>Runs</th></tr></thead>
+<tbody>
+<tr><td><strong>Dose AMT Validity</strong><br><code>CORE-DOSE-001</code></td><td><span class="sev critical">Critical</span></td><td>Flags dose records (EVID 1 or 4) with missing, zero, or negative AMT, and observation records (EVID 0) with a non-zero AMT.<p class="todo"><span class="muted">What to do:</span> Correct the dose amount or the event type. A dose record without a positive amount doses nothing.</p></td><td>Always<br><span class="muted">Needs EVID, AMT</span></td></tr>
+<tr><td><strong>Dose Amount Distribution</strong><br><code>CORE-DOSE-002</code></td><td><span class="sev high">High</span></td><td>Lists the distinct dose amounts. Flags amounts whose log value is more than the outlier cutoff (robust |z|) from the median, with a minimum spread equal to a 1.5-fold difference so that ordinary dose levels are not flagged.<p class="todo"><span class="muted">What to do:</span> Check flagged amounts for unit errors (mg versus ug) or data entry errors against the exposure source data.</p></td><td>Always<br><span class="muted">Needs EVID, AMT</span></td></tr>
+<tr><td><strong>Subjects with Observations but No Dose</strong><br><code>CORE-DOSE-003</code></td><td><span class="sev critical">Critical</span></td><td>Flags subjects with at least one observation record (EVID 0) and no dose record (EVID 1 or 4).<p class="todo"><span class="muted">What to do:</span> Check whether dosing records were lost in a merge or the subject was never dosed (for example placebo). Add the doses or exclude the subject.</p></td><td>Always<br><span class="muted">Needs ID, EVID</span></td></tr>
+<tr><td><strong>Subjects with Dose but No Quantifiable Observation</strong><br><code>CORE-DOSE-004</code></td><td><span class="sev medium">Medium</span></td><td>Flags subjects with a dose record and no observation having MDV = 0 and a non-missing DV.<p class="todo"><span class="muted">What to do:</span> These subjects do not inform the model. Confirm that all their samples are missing or BLQ and decide whether to keep them.</p></td><td>Always<br><span class="muted">Needs ID, EVID, MDV, DV</span></td></tr>
+<tr><td><strong>ADDL and II Basic Validity</strong><br><code>CORE-DOSE-005</code></td><td><span class="sev high">High</span></td><td>Flags negative or non-integer ADDL, ADDL above zero on a non-dose record, and ADDL above zero with a missing or non-positive II.<p class="todo"><span class="muted">What to do:</span> ADDL needs a positive dosing interval II on the same dose record. Correct the pair.</p></td><td>Multiple Dose<br><span class="muted">Needs EVID</span></td></tr>
+<tr><td><strong>Infusion RATE and DUR Basic Validity</strong><br><code>CORE-DOSE-006</code></td><td><span class="sev critical">Critical</span></td><td>Flags negative RATE other than -1 (rate estimated) and -2 (duration estimated), a non-zero RATE on a non-dose record, a missing DUR on a RATE = -2 record when the dataset has a DUR column, and AMT / RATE differing from DUR by more than 5%. Placeholders such as -99 are not valid NONMEM values.<p class="todo"><span class="muted">What to do:</span> Replace placeholder values and reconcile AMT, RATE, and DUR against the infusion records.</p></td><td>IV<br><span class="muted">Needs EVID, AMT</span></td></tr>
+<tr><td><strong>SS Flag Basic Validity</strong><br><code>CORE-DOSE-007</code></td><td><span class="sev high">High</span></td><td>Flags SS values other than 0 or 1, SS = 1 on a non-dose record, and SS = 1 with a missing or non-positive II.<p class="todo"><span class="muted">What to do:</span> A steady-state dose needs SS = 1 together with a positive II on the dose record.</p></td><td>Multiple Dose<br><span class="muted">Needs EVID</span></td></tr>
+</tbody>
+</table></div>
+<div class="wrap"><h2>Observations</h2>
+<table>
+<thead><tr><th>Check</th><th>Severity</th><th>What it flags</th><th>Runs</th></tr></thead>
+<tbody>
+<tr><td><strong>MDV and DV Consistency</strong><br><code>CORE-OBS-001</code></td><td><span class="sev critical">Critical</span></td><td>Flags MDV = 0 with a missing DV, observation records with MDV = 1 that still carry a non-zero DV, and dose records (EVID 1 or 4) that carry a non-zero DV or MDV = 0.<p class="todo"><span class="muted">What to do:</span> Set MDV = 1 wherever DV must be ignored, and remove DV from dose records. NONMEM requires MDV = 1 on dose records.</p></td><td>Always<br><span class="muted">Needs EVID, MDV, DV</span></td></tr>
+<tr><td><strong>BLQ/CENS/LLOQ Internal Consistency</strong><br><code>CORE-OBS-002</code></td><td><span class="sev critical">Critical</span></td><td>BLQ or CENS marks a record as below the limit of quantification (CENS is the censoring indicator used by likelihood-based BLQ methods such as M3). Flags marked records whose DV is above LLOQ, and unmarked observations with MDV = 0 whose DV is below LLOQ.<p class="todo"><span class="muted">What to do:</span> Correct the BLQ flag, DV, or LLOQ so they agree with the bioanalytical report.</p></td><td>Always<br><span class="muted">Needs DV, MDV</span></td></tr>
+<tr><td><strong>BLQ in Middle of Profile</strong><br><code>CORE-OBS-003</code></td><td><span class="sev medium">Medium</span></td><td>Flags a BLQ observation that has a quantifiable observation both before and after it within the same subject, analyte, and dosing interval. Trough samples before the next dose are not flagged.<p class="todo"><span class="muted">What to do:</span> Review the profile. An isolated BLQ between quantifiable samples may be a sample swap or assay issue; decide how to handle it and document the decision.</p></td><td>Always<br><span class="muted">Needs ID, TIME, DV</span></td></tr>
+<tr><td><strong>Predose Concentration Descriptive Review</strong><br><code>CORE-OBS-004</code></td><td><span class="sev medium">Medium</span></td><td>Flags a quantifiable observation taken at or before the subject's first dose whose concentration exceeds the predose cutoff (default 5%) of that subject's highest post-dose concentration.<p class="todo"><span class="muted">What to do:</span> Check for carryover from a previous period, a wrong sample time, or a sample swap. Bioequivalence guidance uses the same 5% of Cmax criterion.</p></td><td>Always<br><span class="muted">Needs ID, TIME, EVID, MDV, DV</span></td></tr>
+<tr><td><strong>Concentration Outlier Detection</strong><br><code>CORE-OBS-005</code></td><td><span class="sev high">High</span></td><td>Among quantifiable observations with the same nominal time and analyte or compartment (or analyte only when no nominal time is mapped), flags log concentrations more than the outlier cutoff (robust |z|) from the group median.<p class="todo"><span class="muted">What to do:</span> Open the subject in Profiles. Check units, sample swaps, and dosing history before excluding anything; an outlier is a prompt for review, not proof of error.</p></td><td>Always<br><span class="muted">Needs EVID, MDV, DV</span></td></tr>
+<tr><td><strong>Minimum Quantifiable PK Records Per Subject or Occasion</strong><br><code>CORE-OBS-006</code></td><td><span class="sev medium">Medium</span></td><td>Flags subjects, or subject-occasions when OCC exists, with fewer quantifiable observations (MDV = 0, non-missing DV) than the minimum set in Settings.<p class="todo"><span class="muted">What to do:</span> Decide whether these subjects carry enough information to keep in the analysis.</p></td><td>Single Dose, Multiple Dose<br><span class="muted">Needs ID, EVID, MDV, DV</span></td></tr>
+</tbody>
+</table></div>
+<div class="wrap"><h2>Covariates</h2>
+<table>
+<thead><tr><th>Check</th><th>Severity</th><th>What it flags</th><th>Runs</th></tr></thead>
+<tbody>
+<tr><td><strong>Fixed Covariate Consistency Within Subject</strong><br><code>CORE-COV-001</code></td><td><span class="sev high">High</span></td><td>SEX, RACE, ETHNIC, COUNTRY and baseline covariates must have one value per subject. A continuous covariate counts as baseline when its name ends in BL or when it changes in fewer than half of the subjects.<p class="todo"><span class="muted">What to do:</span> Correct the inconsistent records. If the covariate is meant to be time-varying, the flagged subjects are the exception worth checking.</p></td><td>Always<br><span class="muted">Needs ID</span></td></tr>
+<tr><td><strong>Character-Numeric Mapping Consistency</strong><br><code>CORE-COV-002</code></td><td><span class="sev high">High</span></td><td>For each label / code pair named X and XN (for example SEX and SEXN), every label must map to one code and every code to one label.<p class="todo"><span class="muted">What to do:</span> Fix the decode in the dataset programming so that the numeric covariate used in the model matches its label.</p></td><td>Always</td></tr>
+<tr><td><strong>Possible Character Truncation</strong><br><code>CORE-COV-003</code></td><td><span class="sev medium">Medium</span></td><td>Flags character variables at least 20 characters long where 20% or more of the values have exactly the maximum length, which suggests truncation at a transport limit.<p class="todo"><span class="muted">What to do:</span> Compare with the source values and increase the variable length if they were cut.</p></td><td>Always</td></tr>
+<tr><td><strong>Continuous Covariate Outlier Detection</strong><br><code>CORE-COV-004</code></td><td><span class="sev medium">Medium</span></td><td>Using one value per subject, flags continuous covariates outside the boxplot fences Q1 - k x IQR and Q3 + k x IQR, where k is the boxplot fence set in Settings (default 3, Tukey's far-out limit).<p class="todo"><span class="muted">What to do:</span> Verify flagged values against the source. Extreme but real values can stay; unit errors such as lb versus kg must be corrected.</p></td><td>Always<br><span class="muted">Needs ID</span></td></tr>
+<tr><td><strong>Implausible Common Covariate Values</strong><br><code>CORE-COV-005</code></td><td><span class="sev high">High</span></td><td>Fixed physiological limits, not data-driven: age 0-120 years, weight 0.2-500 kg, BMI 5-100 kg/m2, height 20-250 cm, CrCL 0-500 mL/min, eGFR 0-300 mL/min/1.73m2. Values outside are flagged.<p class="todo"><span class="muted">What to do:</span> These values are impossible in any population. Check for unit errors and missing-value codes such as -99.</p></td><td>Always<br><span class="muted">Needs ID</span></td></tr>
+<tr><td><strong>Time-Varying Covariate Change Review</strong><br><code>CORE-COV-006</code></td><td><span class="sev medium">Medium</span></td><td>For covariates that change within most subjects, flags records outside the overall boxplot fences (k from Settings) and changes of more than 50% between consecutive records of a subject.<p class="todo"><span class="muted">What to do:</span> Check flagged values against the source vital signs or laboratory data.</p></td><td>Always<br><span class="muted">Needs ID, TIME</span></td></tr>
+</tbody>
+</table></div>
+<div class="wrap"><h2>Compartment and analyte</h2>
+<table>
+<thead><tr><th>Check</th><th>Severity</th><th>What it flags</th><th>Runs</th></tr></thead>
+<tbody>
+<tr><td><strong>CMT Basic Consistency</strong><br><code>CORE-CMP-001</code></td><td><span class="sev medium">Medium</span></td><td>When CMT is populated on some records, flags records where it is missing. The summary shows CMT by event type.<p class="todo"><span class="muted">What to do:</span> Populate CMT on every record; NONMEM otherwise applies the default compartment.</p></td><td>Multi-analyte<br><span class="muted">Needs EVID</span></td></tr>
+<tr><td><strong>DVID and Analyte Internal Consistency</strong><br><code>CORE-CMP-002</code></td><td><span class="sev high">High</span></td><td>Each DVID must map to exactly one analyte label (PARAM, PARAMCD, or ANALYTE).<p class="todo"><span class="muted">What to do:</span> Correct the DVID coding so that one identifier never mixes analytes.</p></td><td>Multi-analyte<br><span class="muted">Needs DVID</span></td></tr>
+<tr><td><strong>Concentration Magnitude Review Across DVID</strong><br><code>CORE-CMP-003</code></td><td><span class="sev medium">Medium</span></td><td>Compares the median concentration between DVID groups and flags a difference of more than 1000-fold.<p class="todo"><span class="muted">What to do:</span> Large differences can be real (parent versus metabolite) or a unit mismatch between analytes. Confirm the units.</p></td><td>Multi-analyte<br><span class="muted">Needs DVID, DV, MDV</span></td></tr>
+</tbody>
+</table></div>
+<div class="wrap"><h2>Occasion</h2>
+<table>
+<thead><tr><th>Check</th><th>Severity</th><th>What it flags</th><th>Runs</th></tr></thead>
+<tbody>
+<tr><td><strong>Occasion and Period Internal Consistency</strong><br><code>CORE-OCC-001</code></td><td><span class="sev high">High</span></td><td>Orders each subject's records by TIME and flags a record whose occasion (OCC, DOSNO, or PERIOD) is lower than the record before it. This also detects overlapping occasion time ranges.<p class="todo"><span class="muted">What to do:</span> Correct the occasion assignment or the time of the flagged records.</p></td><td>Multiple Dose, Integrated<br><span class="muted">Needs ID, TIME</span></td></tr>
+</tbody>
+</table></div>
+<div class="wrap"><h2>Pooled studies</h2>
+<table>
+<thead><tr><th>Check</th><th>Severity</th><th>What it flags</th><th>Runs</th></tr></thead>
+<tbody>
+<tr><td><strong>Subject ID Uniqueness Across Studies</strong><br><code>CORE-INT-001</code></td><td><span class="sev critical">Critical</span></td><td>The numeric ID used by NONMEM must identify one subject: flags an ID that maps to more than one USUBJID or appears in more than one study, and a USUBJID that maps to more than one ID.<p class="todo"><span class="muted">What to do:</span> Re-derive ID so that it is unique across the pooled dataset. NONMEM would otherwise merge different subjects into one individual.</p></td><td>Always<br><span class="muted">Needs ID</span></td></tr>
+<tr><td><strong>Cross-Study Categorical Coding Consistency</strong><br><code>CORE-INT-002</code></td><td><span class="sev high">High</span></td><td>Flags SEX, RACE, ETHNIC, or ROUTE when two studies share no value at all, for example M/F in one study and Male/Female in another. Code-to-label mapping is covered by CORE-COV-002.<p class="todo"><span class="muted">What to do:</span> Harmonize the coding across studies before pooling.</p></td><td>Integrated<br><span class="muted">Needs STUDYID</span></td></tr>
+<tr><td><strong>Cross-Study Numeric Distribution Review</strong><br><code>CORE-INT-003</code></td><td><span class="sev high">High</span></td><td>Compares the per-study median of each continuous covariate and flags a covariate whose highest and lowest study medians differ more than 2-fold. Dose amounts are listed but not flagged.<p class="todo"><span class="muted">What to do:</span> Check for unit differences between studies (kg versus lb, cm versus inch). Different populations, such as pediatric and adult, can explain a real difference.</p></td><td>Integrated<br><span class="muted">Needs STUDYID</span></td></tr>
+</tbody>
+</table></div>
+<div class="wrap"><h2>Modeling readiness</h2>
+<table>
+<thead><tr><th>Check</th><th>Severity</th><th>What it flags</th><th>Runs</th></tr></thead>
+<tbody>
+<tr><td><strong>Exclusion Flag Internal Consistency</strong><br><code>CORE-MR-001</code></td><td><span class="sev high">High</span></td><td>When an exclusion flag exists, flags excluded records without a reason and non-excluded records that carry a reason.<p class="todo"><span class="muted">What to do:</span> Complete or clear the exclusion reason so that every exclusion is traceable.</p></td><td>Always</td></tr>
+<tr><td><strong>Imputation Traceability Signals</strong><br><code>CORE-MR-002</code></td><td><span class="sev medium">Medium</span></td><td>Lists variables named like imputation flags (IMPUT, IMPFL, IMP) with the number of records marked. Never flags.<p class="todo"><span class="muted">What to do:</span> Confirm that every imputed value is documented in the analysis plan.</p></td><td>Always</td></tr>
+<tr><td><strong>Plot-Ready Flagged Subject Review</strong><br><code>CORE-MR-003</code></td><td><span class="sev medium">Medium</span></td><td>Lists every subject flagged by at least one other check, with the checks that flagged them. Never flags.<p class="todo"><span class="muted">What to do:</span> Review these subjects in the Profiles tab.</p></td><td>Always<br><span class="muted">Needs ID, EVID, MDV, DV</span></td></tr>
+</tbody>
+</table></div>
+<h2>Not implemented</h2>
+<p>The source-data reconciliation checks of the checklist
+ (CORE-SRC-000 to CORE-SRC-005) are not implemented: the package reads
+ only the NMPK dataset.</p>
+</body>
+</html>

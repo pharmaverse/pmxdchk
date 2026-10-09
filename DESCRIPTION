@@ -1,0 +1,36 @@
+Package: pmxdchk
+Title: Data Visualization and Quality Checking for Pharmacometric Datasets
+Version: 0.0.0.9000
+Authors@R:
+    person("Runcheng", "Li", email = "runchengli1994@gmail.com", role = c("aut", "cre"))
+Description: Data quality checks for NONMEM-style and ADPPK pharmacometric
+    datasets, with a Shiny application to review the findings alongside
+    individual and population concentration-time profiles.
+License: Apache License (>= 2)
+URL: https://github.com/pharmaverse/pmxdchk
+BugReports: https://github.com/pharmaverse/pmxdchk/issues
+Depends:
+    R (>= 4.1.0)
+Imports:
+    bslib,
+    config,
+    dplyr,
+    DT,
+    ggplot2,
+    golem,
+    purrr,
+    readr,
+    rlang,
+    shiny,
+    stats,
+    tibble
+Suggests:
+    pharmaverseadam,
+    rmarkdown,
+    shinytest2,
+    testthat (>= 3.0.0),
+    knitr
+Config/testthat/edition: 3
+Encoding: UTF-8
+RoxygenNote: 7.3.3
+LazyData: true

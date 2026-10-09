@@ -39,11 +39,19 @@ vignettes/*.pdf
 # R Environment Variables
 .Renviron
 
-# pkgdown site
-docs/
+# pkgdown site output (auto-generated; tracked via gh-pages branch)
+# docs/
 
 # translation temp files
 po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# Claude Code (local only)
+CLAUDE.md
+.claude/
+AGENTS.md
+
+# Shinylive export (built by dev/make_shinylive.R)
+/_shinylive/
