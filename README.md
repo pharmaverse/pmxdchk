@@ -1,4 +1,4 @@
-# pmxdchk <img src="inst/app/www/favicon.ico" align="right" height="139" />
+# pmxdchk
 
 <!-- badges: start -->
 [![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
@@ -7,11 +7,11 @@
 
 ## Overview
 
-`pmxdchk` is an open-source R package (part of the [pharmaverse](https://pharmaverse.org/)) that provides an interactive Shiny application for:
+`pmxdchk` is an open-source R package (part of the [pharmaverse](https://pharmaverse.org/)) for checking the quality of NONMEM-style and ADPPK pharmacometric datasets before modeling. It provides:
 
-- **Data visualization** — individual and population-level PK concentration-time profiles for NONMEM and ADPPK datasets
-- **Data quality checking** — comprehensive, configurable checks for common pharmacometric data issues
-- **PDF reporting** — exportable check reports with user-selectable checks
+- **41 data checks** covering dataset structure, time, dosing, observations, covariates, compartments, occasions, and pooled studies. Each check states the rule it applies and what to do when it flags.
+- **A Shiny app** to load a dataset, look at it, work through the findings with the affected records and subject profiles next to each one, record a decision per finding, and export the results.
+- **A headless entry point**, `run_nmpk_checks()`, that runs the same checks from a script.
 
 ## Installation
 
@@ -23,68 +23,61 @@ pak::pak("pharmaverse/pmxdchk")
 
 ## Usage
 
+### In the app
+
 ```r
 library(pmxdchk)
-
-# Launch the Shiny app
 run_app()
 ```
 
-The app supports file upload of:
-- **ADPPK** datasets (CDISC ADaM format, `.xpt` / `.csv`)
-- **NONMEM-style** datasets (`.csv`)
+1. **Data** — upload a delimited text file (`.csv`, `.txt`, `.dat`) or load a built-in example, confirm the variable mapping and the inferred study type, and run the checks. CDISC ADPPK names such as `USUBJIDN`, `AFRLT`, and `WTBL` are mapped to NONMEM names automatically.
+2. **Overview** — counts, concentration-time profiles of all subjects, dose levels, and missing values.
+3. **Findings** — the checks to review, most severe first. Each shows its rule, the affected records, the profile of each affected subject, and what to do. Decisions and comments are exported with the findings as CSV.
+4. **Profiles** — any subject's profile and records, with flagged records marked.
+5. **Check library** — every check and its rule.
 
-A built-in example dataset (`adppk_example`, sourced from [`pharmaverseadam`](https://pharmaverse.github.io/pharmaverseadam/)) is available to explore the app without uploading data.
+The app runs locally: your data stay on your machine.
 
-## Features
+### From a script
 
-### Data Upload & Preview
-Upload your dataset or load the built-in example. Preview columns, types, and basic summaries before running checks.
+```r
+library(pmxdchk)
 
-### Visualization
-Interactive PK concentration-time plots including individual profiles and population-level overlays.
+findings <- run_nmpk_checks(
+  adppk_corrupted,
+  mapping = c(ID = "USUBJIDN", TIME = "AFRLT", NTIME = "NFRLT", WT = "WTBL"),
+  study_type = c("All", "Multiple Dose")
+)
+findings[findings$status == "flag", c("check_id", "severity", "message")]
 
-### Data Checks
-Configurable checks organized by domain. Select which checks to run and review flagged issues in an interactive table. Check domains are under active development — see [Issues](https://github.com/pharmaverse/pmxdchk/issues) for the planned check list.
-
-### PDF Report
-Generate a PDF report of selected check results, suitable for inclusion in study documentation.
-
-## Project Structure
-
-```
-pmxdchk/
-├── R/
-│   ├── app_config.R               # golem app configuration
-│   ├── app_ui.R                   # Top-level UI
-│   ├── app_server.R               # Top-level server
-│   ├── run_app.R                  # Exported run_app() launcher
-│   ├── mod_data_upload.R          # Module: data upload & preview
-│   ├── mod_visualization.R        # Module: PK plots
-│   ├── mod_report.R               # Module: PDF export
-│   ├── mod_check_<domain>.R       # Module UI/server per check domain
-│   ├── checks_<domain>.R          # Standalone check functions per domain
-│   └── utils.R                    # Shared utilities
-├── inst/
-│   ├── app/www/                   # Static Shiny assets
-│   └── report_templates/
-│       └── check_report.Rmd       # PDF report template
-├── tests/testthat/                # Unit tests for check functions
-├── vignettes/                     # User-facing documentation
-├── data/                          # Built-in example datasets
-├── data-raw/                      # Scripts to generate example datasets
-├── docs/                          # Project reference documents
-└── .github/workflows/             # CI/CD pipelines
+# The rule and guidance of every check
+check_catalogue()
 ```
 
-## pharmaverse
+Two example datasets are included: `adppk_example` (from [`pharmaverseadam`](https://pharmaverse.github.io/pharmaverseadam/)) and `adppk_corrupted`, the same data with known issues injected.
 
-`pmxdchk` is part of the [pharmaverse](https://pharmaverse.org/), a collection of R packages for clinical reporting. It follows pharmaverse conventions for package structure, documentation, and testing.
+## Documentation
+
+- [`docs/check_reference.html`](docs/check_reference.html) — what each check flags, generated from the package (`dev/make_check_reference.R`).
+- [`NEWS.md`](NEWS.md) — changes.
+
+## Not yet available
+
+- PDF or HTML check reports.
+- Reading SAS transport (`.xpt`) files.
+- Reconciliation against source ADaM / SDTM datasets (checklist items `CORE-SRC-*`).
+
+## Development
+
+```r
+devtools::load_all()
+devtools::test()
+```
+
+The package is a [golem](https://thinkr-open.github.io/golem/) application. Each check domain has a `R/checks_<domain>.R` file of pure functions with matching tests in `tests/testthat/`; checks are registered, with their rule and guidance, in `R/check_registry.R`. The Shiny modules are in `R/mod_*.R`.
+
+`dev/make_shinylive.R` builds a browser-only copy of the app (WebAssembly, no server) for static hosting; the `shinylive` workflow publishes it to GitHub Pages.
 
 ## License
 
-[Apache License 2.0](LICENSE)
-
-## Code of Conduct
-
-Please note that the `pmxdchk` project is released with a [Contributor Code of Conduct](CODE_OF_CONDUCT.md). By contributing to this project, you agree to abide by its terms.
+[Apache License 2.0](LICENSE.md)
