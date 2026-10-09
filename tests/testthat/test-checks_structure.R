@@ -45,7 +45,8 @@ test_that("CORE-STRUCT-003 flags invalid EVID", {
 test_that("CORE-STRUCT-004 reports record counts", {
   res <- check_struct_record_counts(make_clean_nmpk(), default_thresholds())
   expect_equal(res$status, "pass")
-  expect_equal(res$summary_table$value[res$summary_table$metric == "subjects"], 2L)
+  counts <- res$summary_table
+  expect_equal(counts$value[counts$metric == "subjects"], 2L)
 })
 
 test_that("CORE-STRUCT-006 summarizes missingness and ignores .rowid", {
@@ -58,8 +59,50 @@ test_that("CORE-STRUCT-006 summarizes missingness and ignores .rowid", {
   expect_true("DV" %in% res$summary_table$variable)
 })
 
+test_that("CORE-STRUCT-006 flags only unexpected missingness", {
+  data <- make_clean_nmpk()
+  data$AMT[data$EVID == 0] <- NA # expected: AMT on observations
+  expect_equal(
+    check_struct_missingness(data, default_thresholds())$status, "pass"
+  )
+  data$AMT[1] <- NA # unexpected: AMT on a dose record
+  res <- check_struct_missingness(data, default_thresholds())
+  expect_equal(res$status, "flag")
+  expect_equal(
+    res$summary_table$event_type[res$summary_table$unexpected], "dose"
+  )
+})
+
+test_that("CORE-STRUCT-005 separates exact duplicates from conflicts", {
+  data <- make_duplicate_nmpk()
+  res <- check_struct_duplicate_records(data, default_thresholds())
+  expect_setequal(res$flagged_records$duplicate_type, "exact duplicate row")
+  data$DV[nrow(data)] <- 99
+  res <- check_struct_duplicate_records(data, default_thresholds())
+  expect_setequal(
+    res$flagged_records$duplicate_type, "same key, different values"
+  )
+})
+
+test_that("CORE-STRUCT-002 flags a character ID", {
+  data <- make_clean_nmpk()
+  data$ID <- paste0("STUDY-", data$ID)
+  res <- check_struct_numeric_parsable(data, default_thresholds())
+  expect_equal(res$status, "flag")
+  expect_equal(res$summary_table$variable, "ID")
+})
+
+test_that("CORE-STRUCT-003 flags a missing EVID", {
+  data <- make_clean_nmpk()
+  data$EVID[2] <- NA
+  res <- check_struct_evid_validity(data, default_thresholds())
+  expect_equal(res$n_flagged, 1L)
+})
+
 test_that("CORE-STRUCT-007 skips without EVID=4 records", {
-  res <- check_struct_evid4_uniqueness(make_multidose_nmpk(), default_thresholds())
+  res <- check_struct_evid4_uniqueness(
+    make_multidose_nmpk(), default_thresholds()
+  )
   expect_equal(res$status, "skip")
 })
 

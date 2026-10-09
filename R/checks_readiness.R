@@ -34,20 +34,29 @@ check_mr_exclusion_flags <- function(data, thresholds) {
   }
 
   reason <- as.character(data[[reason_col]])
-  bad <- which(is_excl & (is.na(reason) | trimws(reason) == ""))
+  has_reason <- !is.na(reason) & trimws(reason) != ""
+  issue <- rep(NA_character_, nrow(data))
+  issue[is_excl & !has_reason] <- "excluded without a reason"
+  issue[!is_excl & has_reason] <- "reason given but not excluded"
+  bad <- which(!is.na(issue))
   if (length(bad) == 0) {
-    return(result_pass("All excluded records carry a reason."))
+    return(result_pass("Exclusion flags and reasons are consistent."))
   }
+  records <- tibble::as_tibble(data[bad, , drop = FALSE])
+  records$issue <- issue[bad]
   result_flag(
-    message = paste0(length(bad), " excluded record(s) without a reason."),
+    message = paste0(
+      length(bad), " record(s) where ", flag_col, " and ", reason_col,
+      " disagree."
+    ),
     n_flagged = length(bad),
-    flagged_records = tibble::as_tibble(data[bad, , drop = FALSE])
+    flagged_records = records
   )
 }
 
 #' CORE-MR-002: Imputation traceability signals
 #'
-#' Detects imputation-flag-like variables and summarizes them for review.
+#' Detects imputation-flag-like variables and counts the records each marks.
 #'
 #' @param data A mapped NMPK dataset.
 #' @param thresholds A thresholds list (unused).
@@ -65,32 +74,46 @@ check_mr_imputation <- function(data, thresholds) {
       "Imputation flag variable(s) detected: ",
       paste(imp_cols, collapse = ", "), "."
     ),
-    summary_table = tibble::tibble(variable = imp_cols)
+    summary_table = tibble::tibble(
+      variable = imp_cols,
+      n_imputed = vapply(
+        imp_cols, function(v) sum(is_positive_flag(data[[v]])), integer(1)
+      )
+    )
   )
 }
 
 #' CORE-MR-003: Plot-ready flagged subject review
 #'
-#' Lists subjects that have quantifiable concentration data and can therefore be
-#' reviewed in the individual profile browser. The flagged-subject overlay is
-#' provided interactively by the profile browser.
+#' Lists every subject flagged by at least one other check, with the checks that
+#' flagged them, for review in the individual profile browser.
 #'
 #' @param data A mapped NMPK dataset.
 #' @param thresholds A thresholds list (unused).
+#' @param results The check results accumulated so far by the runner.
 #' @return A partial check result.
 #' @noRd
-check_mr_plot_ready <- function(data, thresholds) {
-  evid <- suppressWarnings(as.numeric(data$EVID))
-  mdv <- suppressWarnings(as.numeric(data$MDV))
-  dv <- suppressWarnings(as.numeric(data$DV))
-  ids <- unique(data$ID[evid == 0 & mdv == 0 & !is.na(dv)])
-  if (length(ids) == 0) {
-    return(result_skip("No quantifiable observations to plot."))
+check_mr_plot_ready <- function(data, thresholds, results = list()) {
+  flagged <- Filter(function(r) r$status == "flag", results)
+  hits <- dplyr::bind_rows(lapply(flagged, function(r) {
+    ids <- result_subject_ids(r)
+    tibble::tibble(ID = ids, check_id = rep(r$check_id, length(ids)))
+  }))
+  if (nrow(hits) == 0) {
+    return(result_pass("No subjects were flagged by other checks."))
   }
+  checks <- tapply(hits$check_id, hits$ID, paste, collapse = ", ")
+  subjects <- tibble::tibble(
+    ID = names(checks),
+    n_checks = as.integer(table(hits$ID)[names(checks)]),
+    checks = as.character(checks)
+  )
+  subjects <- subjects[order(-subjects$n_checks), ]
   result_pass(
     message = paste0(
-      length(ids), " subject(s) have plot-ready concentration data."
+      nrow(subjects), " subject(s) flagged by at least one check; ",
+      "review them in Profiles."
     ),
-    summary_table = tibble::tibble(ID = ids)
+    subject_list = subjects
   )
 }

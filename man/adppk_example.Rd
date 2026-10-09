@@ -16,9 +16,9 @@ A data frame with one row per event record and CDISC ADPPK columns
 adppk_example
 }
 \description{
-A copy of the ADPPK analysis dataset from \pkg{pharmaverseadam}, provided as a
-built-in clean example for trying the app and the checks. It uses CDISC ADPPK
-variable names (e.g. `USUBJIDN`, `AFRLT`, `NFRLT`, `WTBL`, `PARAMN`), which
-the app's variable mapping resolves to canonical NONMEM names.
+A copy of the ADPPK analysis dataset from \pkg{pharmaverseadam}, provided as
+a built-in clean example for trying the app and the checks. It uses CDISC
+ADPPK variable names (e.g. `USUBJIDN`, `AFRLT`, `NFRLT`, `WTBL`, `PARAMN`),
+which the app's variable mapping resolves to canonical NONMEM names.
 }
 \keyword{datasets}

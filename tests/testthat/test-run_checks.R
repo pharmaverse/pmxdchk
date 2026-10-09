@@ -3,7 +3,10 @@ test_that("run_nmpk_checks returns a tidy findings tibble", {
   expect_s3_class(findings, "tbl_df")
   expect_setequal(
     names(findings),
-    c("check_id", "domain", "severity", "status", "n_flagged", "message")
+    c(
+      "check_id", "title", "domain", "severity", "status", "n_flagged",
+      "message"
+    )
   )
   expect_true(
     all(c("CORE-STRUCT-001", "CORE-STRUCT-005") %in% findings$check_id)
@@ -64,4 +67,51 @@ test_that("run_nmpk_checks flags injected issues across domains", {
     c("CORE-STRUCT-003", "CORE-DOSE-001", "CORE-TIME-003", "CORE-COV-005")
     %in% flagged
   ))
+})
+
+test_that("partial thresholds fall back to defaults", {
+  findings <- run_nmpk_checks(
+    make_clean_nmpk(), thresholds = list(min_quantifiable_n = 5)
+  )
+  expect_false(any(findings$status == "error"))
+})
+
+test_that("every check documents its rule and guidance", {
+  catalogue <- check_catalogue()
+  expect_setequal(catalogue$check_id, names(check_registry()))
+  expect_true(all(nzchar(catalogue$rule)))
+  expect_true(all(nzchar(catalogue$guidance)))
+})
+
+test_that("results carry the rule and guidance from the registry", {
+  findings <- run_nmpk_checks(make_clean_nmpk())
+  res <- attr(findings, "results")[["CORE-DOSE-001"]]
+  expect_true(nzchar(res$rule))
+  expect_true(nzchar(res$guidance))
+})
+
+test_that("no check errors on degenerate datasets", {
+  st <- c(
+    "All", "Single Dose", "Multiple Dose", "IV", "Multi-analyte", "Integrated"
+  )
+  base <- make_multianalyte_nmpk()
+  half_missing <- base
+  for (v in names(half_missing)) {
+    half_missing[[v]][seq(1, nrow(base), by = 2)] <- NA
+  }
+  cases <- list(
+    zero_rows = base[0, ],
+    one_row = base[1, ],
+    no_id_values = transform(base, ID = NA),
+    half_missing = half_missing,
+    all_text = as.data.frame(lapply(base, as.character)),
+    only_doses = base[base$EVID == 1, ],
+    no_id_column = base[, setdiff(names(base), "ID")]
+  )
+  for (name in names(cases)) {
+    expect_no_warning(
+      findings <- run_nmpk_checks(cases[[name]], study_type = st)
+    )
+    expect_false(any(findings$status == "error"), info = name)
+  }
 })

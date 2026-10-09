@@ -12,18 +12,27 @@ check_cmp_cmt <- function(data, thresholds) {
   }
   missing <- is.na(data$CMT) | trimws(as.character(data$CMT)) == ""
   n <- sum(missing)
-  if (n == 0) {
-    return(result_pass("CMT is populated on all records."))
-  }
   if (n == nrow(data)) {
     return(result_skip("CMT is entirely missing."))
+  }
+  by_event <- as.data.frame(
+    table(CMT = data$CMT, EVID = data$EVID, useNA = "ifany"),
+    responseName = "n_records", stringsAsFactors = FALSE
+  )
+  by_event <- tibble::as_tibble(by_event[by_event$n_records > 0, ])
+  if (n == 0) {
+    return(result_pass(
+      "CMT is populated on all records.",
+      summary_table = by_event
+    ))
   }
   result_flag(
     message = paste0(
       n, " record(s) with missing CMT while CMT is otherwise populated."
     ),
     n_flagged = n,
-    flagged_records = tibble::as_tibble(data[which(missing), , drop = FALSE])
+    flagged_records = tibble::as_tibble(data[which(missing), , drop = FALSE]),
+    summary_table = by_event
   )
 }
 
@@ -83,7 +92,7 @@ check_cmp_magnitude <- function(data, thresholds) {
   evid <- suppressWarnings(as.numeric(data$EVID))
   mdv <- suppressWarnings(as.numeric(data$MDV))
   dv <- suppressWarnings(as.numeric(data$DV))
-  quant <- evid == 0 & mdv == 0 & !is.na(dv) & dv > 0
+  quant <- evid %in% 0 & mdv %in% 0 & !is.na(dv) & dv > 0 & !is.na(data$DVID)
   if (sum(quant) < 3 || length(unique(data$DVID[quant])) < 2) {
     return(result_skip("Fewer than two DVID groups with quantifiable data."))
   }

@@ -13,6 +13,8 @@
 #' @param n_flagged Integer, number of flagged records or subjects.
 #' @param summary_table,flagged_records,subject_list,plot_data Optional tibbles
 #'   carrying the check's structured output.
+#' @param rule,guidance Character scalars from the registry: what the check
+#'   flags and what to do about it.
 #'
 #' @return An object of class `pmxdchk_check_result`.
 #' @noRd
@@ -21,7 +23,8 @@ new_check_result <- function(check_id, title, domain, severity, status, message,
                              summary_table = NULL,
                              flagged_records = NULL,
                              subject_list = NULL,
-                             plot_data = NULL) {
+                             plot_data = NULL,
+                             rule = "", guidance = "") {
   stopifnot(
     rlang::is_string(check_id),
     rlang::is_string(status),
@@ -40,7 +43,9 @@ new_check_result <- function(check_id, title, domain, severity, status, message,
       summary_table = summary_table,
       flagged_records = flagged_records,
       subject_list = subject_list,
-      plot_data = plot_data
+      plot_data = plot_data,
+      rule = rule,
+      guidance = guidance
     ),
     class = "pmxdchk_check_result"
   )
@@ -60,10 +65,12 @@ new_check_result <- function(check_id, title, domain, severity, status, message,
 #'
 #' @return A list consumed by [finalize_result()].
 #' @noRd
-result_pass <- function(message, summary_table = NULL, plot_data = NULL) {
+result_pass <- function(message, summary_table = NULL, plot_data = NULL,
+                        subject_list = NULL) {
   list(
     status = "pass", message = message, n_flagged = 0L,
-    summary_table = summary_table, plot_data = plot_data
+    summary_table = summary_table, plot_data = plot_data,
+    subject_list = subject_list
   )
 }
 

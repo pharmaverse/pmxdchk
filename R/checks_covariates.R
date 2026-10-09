@@ -1,26 +1,35 @@
 #' CORE-COV-001: Fixed covariate consistency within subject
 #'
-#' Flags subjects whose supposedly fixed covariates (SEX, RACE, baseline AGE /
-#' WT / BMI) take more than one distinct value across their records.
+#' Flags subjects whose fixed covariates take more than one distinct value
+#' across their records. Fixed covariates are SEX, RACE, ETHNIC, COUNTRY, and
+#' every continuous covariate that is not time-varying by design (see
+#' [time_varying_covariates()]).
 #'
 #' @param data A mapped NMPK dataset.
 #' @param thresholds A thresholds list (unused).
 #' @return A partial check result.
 #' @noRd
 check_cov_fixed_consistency <- function(data, thresholds) {
-  covs <- intersect(c("SEX", "RACE", "AGE", "WT", "BMI"), names(data))
+  covs <- c(
+    intersect(c("SEX", "RACE", "ETHNIC", "COUNTRY"), names(data)),
+    setdiff(continuous_covariates(data), time_varying_covariates(data))
+  )
   if (length(covs) == 0 || !"ID" %in% names(data)) {
     return(result_skip("No fixed covariates available to check."))
   }
 
   flagged <- list()
   for (cv in covs) {
-    n_distinct <- tapply(
-      data[[cv]], data$ID, function(x) length(unique(x[!is.na(x)]))
+    values <- tapply(
+      as.character(data[[cv]]), as.character(data$ID),
+      function(x) paste(sort(unique(x[!is.na(x)])), collapse = " | ")
     )
-    bad_ids <- names(n_distinct)[!is.na(n_distinct) & n_distinct > 1]
-    if (length(bad_ids) > 0) {
-      flagged[[cv]] <- tibble::tibble(ID = bad_ids, variable = cv)
+    bad <- grep(" | ", values, fixed = TRUE)
+    if (length(bad) > 0) {
+      flagged[[cv]] <- tibble::tibble(
+        ID = names(values)[bad], variable = cv,
+        values = unname(as.character(values[bad]))
+      )
     }
   }
 
@@ -30,7 +39,8 @@ check_cov_fixed_consistency <- function(data, thresholds) {
   tab <- dplyr::bind_rows(flagged)
   result_flag(
     message = paste0(
-      nrow(tab), " subject-covariate(s) with inconsistent fixed values."
+      nrow(tab), " subject-covariate(s) with inconsistent fixed values (",
+      paste(unique(tab$variable), collapse = ", "), ")."
     ),
     n_flagged = nrow(tab),
     summary_table = tab,
@@ -40,15 +50,15 @@ check_cov_fixed_consistency <- function(data, thresholds) {
 
 #' CORE-COV-004: Continuous covariate outlier detection
 #'
-#' At the subject level (first record per subject), flags robust (MAD-based)
-#' outliers among common continuous covariates, using `thresholds$outlier_nmad`.
+#' At the subject level (first record per subject), flags continuous covariates
+#' outside the boxplot fences, using `thresholds$outlier_iqr_k`.
 #'
 #' @param data A mapped NMPK dataset.
-#' @param thresholds A thresholds list; uses `outlier_nmad`.
+#' @param thresholds A thresholds list; uses `outlier_iqr_k`.
 #' @return A partial check result.
 #' @noRd
 check_cov_outliers <- function(data, thresholds) {
-  covs <- intersect(c("AGE", "WT", "BMI"), names(data))
+  covs <- continuous_covariates(data)
   if (length(covs) == 0 || !"ID" %in% names(data)) {
     return(result_skip("No continuous covariates available to review."))
   }
@@ -57,23 +67,25 @@ check_cov_outliers <- function(data, thresholds) {
   flagged <- list()
   for (cv in covs) {
     x <- suppressWarnings(as.numeric(first[[cv]]))
-    if (sum(!is.na(x)) < 3) next
-    out <- which(robust_outliers(x, thresholds$outlier_nmad))
+    if (sum(!is.na(x)) < 5) next
+    out <- which(tukey_outliers(x, thresholds$outlier_iqr_k))
     if (length(out) > 0) {
       flagged[[cv]] <- tibble::tibble(
-        ID = first$ID[out], variable = cv, value = x[out]
+        ID = as.character(first$ID[out]), variable = cv, value = x[out]
       )
     }
   }
 
   if (length(flagged) == 0) {
-    return(result_pass("No continuous covariate outliers detected."))
+    return(result_pass(paste0(
+      "No outliers among ", length(covs), " continuous covariate(s)."
+    )))
   }
   tab <- dplyr::bind_rows(flagged)
   result_flag(
     message = paste0(
-      nrow(tab), " covariate outlier(s) across ",
-      length(flagged), " variable(s)."
+      nrow(tab), " covariate value(s) outside the boxplot fences (",
+      paste(names(flagged), collapse = ", "), ")."
     ),
     n_flagged = nrow(tab),
     summary_table = tab,
@@ -83,31 +95,35 @@ check_cov_outliers <- function(data, thresholds) {
 
 #' CORE-COV-005: Implausible common covariate values
 #'
-#' Conservative public-health plausibility checks for common covariates
-#' (negative or extreme age, weight, or BMI).
+#' Flags covariate values outside the fixed physiological limits in
+#' [cov_plausibility_rules()].
 #'
 #' @param data A mapped NMPK dataset.
 #' @param thresholds A thresholds list (unused).
 #' @return A partial check result.
 #' @noRd
 check_cov_implausible <- function(data, thresholds) {
-  rules <- list(
-    AGE = function(x) x < 0 | x > 120,
-    WT = function(x) x <= 0 | x > 500,
-    BMI = function(x) x < 5 | x > 100
+  rules <- cov_plausibility_rules()
+  rules$variable <- vapply(
+    rules$pattern, function(p) detect_col(names(data), p), character(1),
+    USE.NAMES = FALSE
   )
-  present <- intersect(names(rules), names(data))
-  if (length(present) == 0 || !"ID" %in% names(data)) {
+  rules <- rules[!is.na(rules$variable), ]
+  if (nrow(rules) == 0 || !"ID" %in% names(data)) {
     return(result_skip("No covariates with plausibility rules present."))
   }
 
   flagged <- list()
-  for (cv in present) {
-    x <- suppressWarnings(as.numeric(data[[cv]]))
-    bad <- which(!is.na(x) & rules[[cv]](x))
+  for (i in seq_len(nrow(rules))) {
+    x <- suppressWarnings(as.numeric(data[[rules$variable[i]]]))
+    bad <- which(x < rules$lower[i] | x > rules$upper[i])
     if (length(bad) > 0) {
-      flagged[[cv]] <- tibble::tibble(
-        ID = data$ID[bad], variable = cv, value = x[bad]
+      flagged[[i]] <- tibble::tibble(
+        ID = as.character(data$ID[bad]), variable = rules$variable[i],
+        value = x[bad],
+        plausible_range = paste0(
+          rules$lower[i], " - ", rules$upper[i], " ", rules$unit[i]
+        )
       )
     }
   }
@@ -117,7 +133,10 @@ check_cov_implausible <- function(data, thresholds) {
   }
   tab <- dplyr::distinct(dplyr::bind_rows(flagged))
   result_flag(
-    message = paste0(nrow(tab), " implausible covariate value(s)."),
+    message = paste0(
+      nrow(tab), " implausible covariate value(s) (",
+      paste(unique(tab$variable), collapse = ", "), ")."
+    ),
     n_flagged = nrow(tab),
     summary_table = tab,
     subject_list = tibble::tibble(ID = unique(tab$ID))
@@ -141,7 +160,7 @@ check_cov_char_numeric <- function(data, thresholds) {
     return(result_skip("No paired character/numeric covariates detected."))
   }
 
-  bad <- character()
+  bad <- list()
   for (lab in pairs) {
     code <- paste0(lab, "N")
     d <- unique(data.frame(
@@ -152,19 +171,26 @@ check_cov_char_numeric <- function(data, thresholds) {
     if (nrow(d) == 0) next
     l2c <- tapply(d$c, d$l, function(x) length(unique(x)))
     c2l <- tapply(d$l, d$c, function(x) length(unique(x)))
-    if (any(l2c > 1) || any(c2l > 1)) bad <- c(bad, paste0(lab, "/", code))
+    conflict <- d$l %in% names(l2c)[l2c > 1] | d$c %in% names(c2l)[c2l > 1]
+    if (any(conflict)) {
+      bad[[lab]] <- tibble::tibble(
+        pair = paste0(lab, "/", code),
+        label = d$l[conflict], code = d$c[conflict]
+      )
+    }
   }
 
   if (length(bad) == 0) {
     return(result_pass("Paired character/numeric covariates map one-to-one."))
   }
+  tab <- dplyr::bind_rows(bad)
   result_flag(
     message = paste0(
       length(bad), " covariate pair(s) with inconsistent mapping: ",
-      paste(bad, collapse = ", "), "."
+      paste(unique(tab$pair), collapse = ", "), "."
     ),
     n_flagged = length(bad),
-    summary_table = tibble::tibble(pair = bad)
+    summary_table = tab
   )
 }
 
@@ -214,47 +240,57 @@ check_cov_truncation <- function(data, thresholds) {
 
 #' CORE-COV-006: Time-varying covariate change review
 #'
-#' For covariates that vary within a subject (weight, BMI), flags large
-#' short-interval relative changes (> 50%) between adjacent records.
+#' For covariates that are time-varying by design (see
+#' [time_varying_covariates()]), flags records outside the overall boxplot
+#' fences (`thresholds$outlier_iqr_k`) and relative changes above 50% between
+#' consecutive records of a subject.
 #'
 #' @param data A mapped NMPK dataset.
-#' @param thresholds A thresholds list (unused).
+#' @param thresholds A thresholds list; uses `outlier_iqr_k`.
 #' @return A partial check result.
 #' @noRd
 check_cov_time_varying <- function(data, thresholds) {
-  cand <- intersect(c("WT", "BMI"), names(data))
-  if (length(cand) == 0 || !"ID" %in% names(data) || !"TIME" %in% names(data)) {
-    return(result_skip("No time-varying covariates available to review."))
+  cand <- time_varying_covariates(data)
+  if (length(cand) == 0) {
+    return(result_skip("No time-varying covariates detected."))
   }
   time <- suppressWarnings(as.numeric(data$TIME))
+  ord <- order(as.character(data$ID), time)
+  same_id <- c(FALSE, data$ID[ord][-1] == data$ID[ord][-length(ord)])
 
   flagged <- list()
   for (cv in cand) {
     x <- suppressWarnings(as.numeric(data[[cv]]))
-    varies <- any(tapply(x, data$ID, function(v) {
-      length(unique(v[!is.na(v)])) > 1
-    }), na.rm = TRUE)
-    if (!isTRUE(varies)) next
-    for (idx in split(seq_len(nrow(data)), data$ID)) {
-      o <- idx[order(time[idx])]
-      xv <- x[o]
-      rel <- abs(diff(xv)) / pmax(abs(xv[-length(xv)]), 1e-9)
-      big <- which(!is.na(rel) & rel > 0.5)
-      if (length(big) > 0) {
-        flagged[[length(flagged) + 1]] <- tibble::tibble(
-          ID = data$ID[o[big + 1]], variable = cv,
-          rel_change = round(rel[big], 2)
-        )
-      }
+    xo <- x[ord]
+    previous <- c(NA, xo[-length(xo)])
+    jump <- rep(FALSE, nrow(data))
+    jump[ord] <- same_id & abs(xo - previous) > 0.5 * abs(previous)
+    reason <- rep(NA_character_, nrow(data))
+    reason[which(jump)] <- "change above 50% from previous record"
+    reason[
+      tukey_outliers(x, thresholds$outlier_iqr_k)
+    ] <- "outside overall boxplot fences"
+    hit <- which(!is.na(reason))
+    if (length(hit) > 0) {
+      flagged[[cv]] <- tibble::tibble(
+        ID = as.character(data$ID[hit]), TIME = time[hit], variable = cv,
+        value = x[hit], reason = reason[hit]
+      )
     }
   }
 
   if (length(flagged) == 0) {
-    return(result_pass("No large short-interval covariate changes."))
+    return(result_pass(paste0(
+      "No unusual values in time-varying covariate(s): ",
+      paste(cand, collapse = ", "), "."
+    )))
   }
   tab <- dplyr::bind_rows(flagged)
   result_flag(
-    message = paste0(nrow(tab), " large within-subject covariate change(s)."),
+    message = paste0(
+      nrow(tab), " unusual time-varying covariate value(s) (",
+      paste(unique(tab$variable), collapse = ", "), ")."
+    ),
     n_flagged = nrow(tab),
     summary_table = tab,
     subject_list = tibble::tibble(ID = unique(tab$ID))

@@ -1,32 +1,55 @@
 #' CORE-INT-001: Subject ID uniqueness across studies
 #'
-#' When STUDYID is present, flags subject IDs that appear in more than one
-#' study, a possible ID collision in a pooled dataset.
+#' The NONMEM `ID` must identify exactly one subject. Flags an `ID` that maps to
+#' more than one `USUBJID` or appears in more than one study, and a `USUBJID`
+#' that maps to more than one `ID`.
 #'
 #' @param data A mapped NMPK dataset.
 #' @param thresholds A thresholds list (unused).
 #' @return A partial check result.
 #' @noRd
 check_int_id_uniqueness <- function(data, thresholds) {
-  if (!"STUDYID" %in% names(data)) {
-    return(result_skip("No STUDYID variable present."))
+  keys <- intersect(c("STUDYID", "USUBJID"), names(data))
+  if (length(keys) == 0) {
+    return(result_skip("No STUDYID or USUBJID variable present."))
   }
-  d <- unique(data.frame(
-    ID = as.character(data$ID), STUDYID = as.character(data$STUDYID),
-    stringsAsFactors = FALSE
-  ))
-  studies_per_id <- tapply(d$STUDYID, d$ID, function(x) length(unique(x)))
-  bad <- names(studies_per_id)[studies_per_id > 1]
+  id <- as.character(data$ID)
+  n_per <- function(x, by) tapply(x, by, function(v) length(unique(v)))
+
+  bad <- list()
+  for (key in keys) {
+    n <- n_per(as.character(data[[key]]), id)
+    hit <- names(n)[n > 1]
+    if (length(hit) > 0) {
+      bad[[key]] <- tibble::tibble(
+        ID = hit, issue = paste0("ID maps to ", n[hit], " ", key, " values")
+      )
+    }
+  }
+  if ("USUBJID" %in% keys) {
+    n <- n_per(id, as.character(data$USUBJID))
+    hit <- names(n)[n > 1]
+    ids <- unique(id[data$USUBJID %in% hit])
+    if (length(ids) > 0) {
+      bad[["split"]] <- tibble::tibble(
+        ID = ids, issue = "USUBJID maps to more than one ID"
+      )
+    }
+  }
 
   if (length(bad) == 0) {
-    return(result_pass("Subject IDs do not collide across studies."))
+    return(result_pass(paste0(
+      "ID is unique with respect to ", paste(keys, collapse = " and "), "."
+    )))
   }
+  tab <- dplyr::bind_rows(bad)
   result_flag(
     message = paste0(
-      length(bad), " subject ID(s) appear in multiple studies (possible collision)."
+      length(unique(tab$ID)), " ID(s) do not identify a single subject."
     ),
-    n_flagged = length(bad),
-    subject_list = tibble::tibble(ID = bad)
+    n_flagged = length(unique(tab$ID)),
+    summary_table = tab,
+    subject_list = tibble::tibble(ID = unique(tab$ID))
   )
 }
 
@@ -43,16 +66,16 @@ check_int_categorical <- function(data, thresholds) {
   if (!"STUDYID" %in% names(data)) {
     return(result_skip("No STUDYID variable present."))
   }
-  cats <- intersect(c("SEX", "RACE", "ROUTE"), names(data))
+  cats <- intersect(c("SEX", "RACE", "ETHNIC", "ROUTE"), names(data))
   if (length(cats) == 0) {
     return(result_skip("No categorical covariates to compare across studies."))
   }
 
-  bad <- character()
+  bad <- list()
   for (cv in cats) {
     sets <- tapply(
       as.character(data[[cv]]), data$STUDYID,
-      function(x) unique(x[!is.na(x)])
+      function(x) sort(unique(x[!is.na(x)]))
     )
     sets <- sets[vapply(sets, length, integer(1)) > 0]
     if (length(sets) < 2) next
@@ -62,29 +85,38 @@ check_int_categorical <- function(data, thresholds) {
         if (length(intersect(sets[[i]], sets[[j]])) == 0) disjoint <- TRUE
       }
     }
-    if (disjoint) bad <- c(bad, cv)
+    if (disjoint) {
+      bad[[cv]] <- tibble::tibble(
+        variable = cv, STUDYID = names(sets),
+        values = vapply(sets, paste, character(1), collapse = ", ")
+      )
+    }
   }
 
   if (length(bad) == 0) {
-    return(result_pass("Categorical covariate coding is consistent across studies."))
+    return(result_pass(
+      "Categorical covariate coding is consistent across studies."
+    ))
   }
   result_flag(
     message = paste0(
       length(bad), " covariate(s) with divergent cross-study coding: ",
-      paste(bad, collapse = ", "), "."
+      paste(names(bad), collapse = ", "), "."
     ),
     n_flagged = length(bad),
-    summary_table = tibble::tibble(variable = bad)
+    summary_table = dplyr::bind_rows(bad)
   )
 }
 
 #' CORE-INT-003: Cross-study numeric distribution review
 #'
-#' When STUDYID is present (3+ studies), flags numeric variables whose per-study
-#' median is a robust outlier among studies, a possible unit/harmonization issue.
+#' When two or more studies are pooled, tabulates the per-study median of each
+#' continuous covariate and of AMT, and flags covariates whose highest and
+#' lowest study medians differ more than 2-fold, a possible unit or
+#' harmonization issue.
 #'
 #' @param data A mapped NMPK dataset.
-#' @param thresholds A thresholds list; uses `outlier_nmad`.
+#' @param thresholds A thresholds list (unused).
 #' @return A partial check result.
 #' @importFrom stats median
 #' @noRd
@@ -92,38 +124,39 @@ check_int_numeric <- function(data, thresholds) {
   if (!"STUDYID" %in% names(data)) {
     return(result_skip("No STUDYID variable present."))
   }
-  if (length(unique(data$STUDYID)) < 3) {
-    return(result_skip("Fewer than three studies for distribution comparison."))
+  if (length(unique(data$STUDYID)) < 2) {
+    return(result_skip("Only one study present."))
   }
-  nums <- intersect(c("WT", "BMI", "AGE", "AMT"), names(data))
+  covs <- continuous_covariates(data)
+  nums <- c(covs, intersect("AMT", names(data)))
   if (length(nums) == 0) {
     return(result_skip("No numeric variables to compare across studies."))
   }
 
-  bad <- list()
-  for (cv in nums) {
+  tab <- dplyr::bind_rows(lapply(nums, function(cv) {
     x <- suppressWarnings(as.numeric(data[[cv]]))
+    x[x <= 0] <- NA
     med <- tapply(x, data$STUDYID, function(v) median(v, na.rm = TRUE))
     med <- med[!is.na(med)]
-    if (length(med) < 3) next
-    out <- robust_outliers(as.numeric(med), thresholds$outlier_nmad)
-    if (any(out)) {
-      bad[[cv]] <- tibble::tibble(
-        variable = cv, STUDYID = names(med)[out],
-        median = round(as.numeric(med)[out], 2)
-      )
-    }
-  }
+    tibble::tibble(
+      variable = cv, STUDYID = names(med), median = signif(as.numeric(med), 4),
+      flagged = cv %in% covs && length(med) > 1 && max(med) / min(med) > 2
+    )
+  }))
 
+  bad <- unique(tab$variable[tab$flagged])
   if (length(bad) == 0) {
-    return(result_pass("Numeric distributions are comparable across studies."))
+    return(result_pass(
+      "Covariate medians are within 2-fold across studies.",
+      summary_table = tab
+    ))
   }
-  tab <- dplyr::bind_rows(bad)
   result_flag(
     message = paste0(
-      nrow(tab), " study-level numeric distribution outlier(s)."
+      length(bad), " covariate(s) whose median differs more than 2-fold ",
+      "between studies: ", paste(bad, collapse = ", "), "."
     ),
-    n_flagged = nrow(tab),
+    n_flagged = length(bad),
     summary_table = tab
   )
 }

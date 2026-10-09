@@ -18,14 +18,16 @@ run_nmpk_checks(
 names to user column names (`c(ID = "USUBJID", TIME = "TAFD")`). When
 `NULL`, columns are assumed to already use canonical names.}
 
-\item{thresholds}{A list of thresholds; see [default_thresholds()].}
+\item{thresholds}{A list of thresholds; see [default_thresholds()]. Elements
+not supplied fall back to their defaults.}
 
 \item{study_type}{Character vector of confirmed study types used to gate
 conditional checks. Defaults to `"All"`.}
 }
 \value{
-A tibble with one row per check: `check_id`, `domain`, `severity`,
-  `status`, `n_flagged`, `message`. The full [new_check_result()] objects are
+A tibble with one row per check: `check_id`, `title`, `domain`,
+  `severity`, `status`, `n_flagged`, `message`. The full
+  [new_check_result()] objects are
   attached as the `"results"` attribute for the app and reporting layers.
 }
 \description{

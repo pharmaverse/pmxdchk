@@ -9,9 +9,11 @@
 #' @noRd
 nmpk_var_dictionary <- function() {
   list(
-    ID      = c("ID", "USUBJIDN", "USUBJID", "SUBJIDN", "SUBJID"),
+    ID      = c("ID", "NMID", "USUBJIDN", "SUBJIDN", "USUBJID", "SUBJID"),
+    USUBJID = c("USUBJID"),
     TIME    = c("TIME", "AFRLT", "TAFD", "APRLT", "RELTIME"),
     NTIME   = c("NTIME", "NFRLT", "NPRLT", "TADNOM"),
+    VISIT   = c("VISIT", "AVISIT", "VISITNUM"),
     EVID    = c("EVID"),
     MDV     = c("MDV"),
     DV      = c("DV", "DVOR", "AVAL"),
@@ -46,9 +48,11 @@ nmpk_var_dictionary <- function() {
 #' @noRd
 nmpk_var_labels <- function() {
   c(
-    ID      = "Subject identifier",
+    ID      = "Numeric subject identifier used by NONMEM",
+    USUBJID = "Unique subject identifier (source)",
     TIME    = "Actual time after first dose",
     NTIME   = "Nominal (planned) time",
+    VISIT   = "Visit",
     EVID    = "Event type (0 obs, 1 dose, 2 other, 3 reset, 4 reset+dose)",
     MDV     = "Missing dependent variable flag",
     DV      = "Dependent variable (observed concentration)",
@@ -76,7 +80,8 @@ nmpk_var_labels <- function() {
 #' Auto-guess a canonical-to-user-column mapping
 #'
 #' For each canonical variable, returns the first alias present in `columns`
-#' (case-insensitive). Datasets that already use canonical names resolve to a
+#' (case-insensitive) that is not already taken by an earlier canonical
+#' variable. Datasets that already use canonical names resolve to a
 #' near-identity mapping, supporting the frictionless path in the upload module.
 #'
 #' @param columns Character vector of column names in the uploaded dataset.
@@ -90,7 +95,7 @@ guess_mapping <- function(columns) {
   for (canon in names(dict)) {
     for (alias in dict[[canon]]) {
       m <- which(lower == tolower(alias))
-      if (length(m) > 0) {
+      if (length(m) > 0 && !columns[m[1]] %in% out) {
         out[[canon]] <- columns[m[1]]
         break
       }

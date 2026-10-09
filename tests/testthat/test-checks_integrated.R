@@ -19,9 +19,35 @@ test_that("CORE-INT-002 flags divergent cross-study coding", {
   expect_equal(res$status, "flag")
 })
 
-test_that("CORE-INT-003 skips with fewer than three studies", {
+test_that("CORE-INT-003 passes when study medians are comparable", {
   res <- check_int_numeric(make_integrated_nmpk(), default_thresholds())
-  expect_equal(res$status, "skip")
+  expect_equal(res$status, "pass")
+})
+
+test_that("CORE-INT-003 skips with a single study", {
+  data <- make_integrated_nmpk()
+  data$STUDYID <- "S1"
+  expect_equal(check_int_numeric(data, default_thresholds())$status, "skip")
+})
+
+test_that("CORE-INT-001 flags an ID shared by two USUBJIDs", {
+  data <- make_multidose_nmpk()
+  data$USUBJID <- paste0("S1-", data$ID)
+  expect_equal(
+    check_int_id_uniqueness(data, default_thresholds())$status, "pass"
+  )
+  data$USUBJID[data$ID == 2] <- "S2-1"
+  data$ID[data$ID == 2] <- 1
+  res <- check_int_id_uniqueness(data, default_thresholds())
+  expect_equal(res$status, "flag")
+  expect_equal(res$subject_list$ID, "1")
+})
+
+test_that("CORE-INT-001 flags a USUBJID split across two IDs", {
+  data <- make_multidose_nmpk()
+  data$USUBJID <- paste0("S1-", pmin(data$ID, 5)) # IDs 5 and 6 share one
+  res <- check_int_id_uniqueness(data, default_thresholds())
+  expect_setequal(res$subject_list$ID, c("5", "6"))
 })
 
 test_that("CORE-INT-003 flags a study-level numeric outlier", {

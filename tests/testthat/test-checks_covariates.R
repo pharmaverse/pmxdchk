@@ -25,7 +25,9 @@ test_that("CORE-COV-001 flags inconsistent fixed covariate within subject", {
 })
 
 test_that("CORE-COV-001 passes when fixed covariates are constant", {
-  res <- check_cov_fixed_consistency(make_multidose_nmpk(), default_thresholds())
+  res <- check_cov_fixed_consistency(
+    make_multidose_nmpk(), default_thresholds()
+  )
   expect_equal(res$status, "pass")
 })
 
@@ -67,9 +69,33 @@ test_that("CORE-COV-003 flags possible character truncation", {
 
 test_that("CORE-COV-006 flags a large within-subject covariate change", {
   data <- make_multidose_nmpk()
-  data$WT[data$ID == 1] <- c(70, 70, 70, 70, 140, 70)
+  data$WT <- data$WT + data$TIME / 10 # weight drifts in every subject
+  expect_equal(
+    check_cov_time_varying(data, default_thresholds())$status, "pass"
+  )
+  data$WT[data$ID == 1][5] <- 140
   res <- check_cov_time_varying(data, default_thresholds())
   expect_equal(res$status, "flag")
+  expect_equal(unique(res$summary_table$ID), "1")
+})
+
+test_that("a covariate changing in few subjects is fixed, not time-varying", {
+  data <- make_multidose_nmpk()
+  data$WT[data$ID == 1][5] <- 140
+  expect_equal(
+    check_cov_time_varying(data, default_thresholds())$status, "skip"
+  )
+  res <- check_cov_fixed_consistency(data, default_thresholds())
+  expect_equal(res$status, "flag")
+  expect_equal(res$summary_table$variable, "WT")
+})
+
+test_that("CORE-COV-005 reports the plausible range for extra covariates", {
+  data <- make_cov_nmpk()
+  data$CRCLBL <- c(90, 100, 110, -99, 95, 105)
+  res <- check_cov_implausible(data, default_thresholds())
+  expect_equal(res$summary_table$variable, "CRCLBL")
+  expect_match(res$summary_table$plausible_range, "0 - 500")
 })
 
 test_that("CORE-COV-006 skips without time-varying covariates", {

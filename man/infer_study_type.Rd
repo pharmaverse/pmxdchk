@@ -13,10 +13,10 @@ infer_study_type(data)
 A tibble with columns `study_type`, `applicable` (logical), `reason`.
 }
 \description{
-Data-driven inference for `CORE-STUDYTYPE-001`, following the *Study Type Map*
-sheet of the QC checklist. Operates on a dataset already mapped to canonical
-variable names. The result is informational: the app presents it for user
-confirmation before checks are selected.
+Data-driven inference for `CORE-STUDYTYPE-001`, following the *Study Type
+Map* sheet of the QC checklist. Operates on a dataset already mapped to
+canonical variable names. The result is informational: the app presents it
+for user confirmation before checks are selected.
 }
 \examples{
 df <- data.frame(

@@ -14,3 +14,16 @@ test_that("guess_mapping omits unresolved variables", {
   m <- guess_mapping(c("foo", "bar"))
   expect_length(m, 0)
 })
+
+test_that("guess_mapping keeps USUBJID separate from a numeric ID", {
+  m <- guess_mapping(c("USUBJID", "USUBJIDN", "AVISIT"))
+  expect_equal(
+    unname(m[c("ID", "USUBJID", "VISIT")]), c("USUBJIDN", "USUBJID", "AVISIT")
+  )
+})
+
+test_that("guess_mapping never maps one column to two canonical names", {
+  m <- guess_mapping(c("USUBJID", "TIME"))
+  expect_equal(unname(m["ID"]), "USUBJID")
+  expect_false("USUBJID" %in% names(m))
+})

@@ -27,8 +27,8 @@ check_struct_core_variables <- function(data, thresholds) {
 #' CORE-STRUCT-005: Duplicate records
 #'
 #' Flags records that duplicate a common key (`ID`, `TIME`, `EVID`, plus
-#' `CMT`/`DVID`/`OCC`/`DOSNO` when present). Without a data specification these
-#' are reported as potential duplicates for review.
+#' `CMT`/`DVID`/`OCC`/`DOSNO` when present), labelling each as an exact
+#' duplicate row or as the same key with different values.
 #'
 #' @param data A mapped NMPK dataset.
 #' @param thresholds A thresholds list (unused).
@@ -44,13 +44,21 @@ check_struct_duplicate_records <- function(data, thresholds) {
   if (n == 0) {
     return(result_pass("No duplicate keys detected."))
   }
+  full <- data[, setdiff(names(data), ".rowid"), drop = FALSE]
+  exact <- duplicated(full) | duplicated(full, fromLast = TRUE)
+  flagged <- tibble::as_tibble(data[dup, , drop = FALSE])
+  flagged$duplicate_type <- ifelse(
+    exact[dup], "exact duplicate row", "same key, different values"
+  )
   result_flag(
     message = paste0(
       n, " record(s) share a duplicate key (",
-      paste(keys, collapse = " + "), ")."
+      paste(keys, collapse = " + "), "): ", sum(exact[dup]),
+      " exact duplicate row(s), ", sum(!exact[dup]),
+      " with different values."
     ),
     n_flagged = n,
-    flagged_records = tibble::as_tibble(data[dup, , drop = FALSE])
+    flagged_records = flagged
   )
 }
 
@@ -65,7 +73,10 @@ check_struct_duplicate_records <- function(data, thresholds) {
 #' @noRd
 check_struct_numeric_parsable <- function(data, thresholds) {
   expected <- intersect(
-    c("TIME", "EVID", "MDV", "DV", "AMT", "RATE", "II", "ADDL", "CMT", "DVID"),
+    c(
+      "ID", "TIME", "EVID", "MDV", "DV", "AMT", "RATE", "II", "ADDL", "CMT",
+      "DVID"
+    ),
     names(data)
   )
   n_bad <- vapply(expected, function(v) {
@@ -80,7 +91,9 @@ check_struct_numeric_parsable <- function(data, thresholds) {
 
   bad <- n_bad[n_bad > 0]
   if (length(bad) == 0) {
-    return(result_pass("All expected numeric variables are parsable as numeric."))
+    return(result_pass(
+      "All expected numeric variables are parsable as numeric."
+    ))
   }
   result_flag(
     message = paste0(
@@ -95,7 +108,8 @@ check_struct_numeric_parsable <- function(data, thresholds) {
 
 #' CORE-STRUCT-003: EVID value validity
 #'
-#' Flags records whose EVID is outside the standard set 0, 1, 2, 3, 4.
+#' Flags records whose EVID is missing or outside the standard set 0, 1, 2, 3,
+#' 4.
 #'
 #' @param data A mapped NMPK dataset.
 #' @param thresholds A thresholds list (unused).
@@ -103,13 +117,13 @@ check_struct_numeric_parsable <- function(data, thresholds) {
 #' @noRd
 check_struct_evid_validity <- function(data, thresholds) {
   evid <- suppressWarnings(as.numeric(data$EVID))
-  invalid <- !is.na(evid) & !(evid %in% c(0, 1, 2, 3, 4))
+  invalid <- !(evid %in% c(0, 1, 2, 3, 4))
   n <- sum(invalid)
   if (n == 0) {
     return(result_pass("EVID contains only standard values (0-4)."))
   }
   result_flag(
-    message = paste0(n, " record(s) with invalid EVID value(s)."),
+    message = paste0(n, " record(s) with a missing or invalid EVID."),
     n_flagged = n,
     flagged_records = tibble::as_tibble(data[invalid, , drop = FALSE])
   )
@@ -143,10 +157,12 @@ check_struct_record_counts <- function(data, thresholds) {
   )
 }
 
-#' CORE-STRUCT-006: Missingness by variable
+#' CORE-STRUCT-006: Missingness by event type
 #'
-#' Descriptive missingness summary that feeds the Overview dashboard. Internal
-#' bookkeeping columns (prefixed with `.`) are excluded.
+#' Summarizes missing values per variable and event type (dose, observation,
+#' other) and flags missingness that is not expected: `ID`, `TIME`, `EVID`, or
+#' `MDV` on any record, `AMT` on dose records, and covariates on any record.
+#' Internal bookkeeping columns (prefixed with `.`) are excluded.
 #'
 #' @param data A mapped NMPK dataset.
 #' @param thresholds A thresholds list (unused).
@@ -154,15 +170,48 @@ check_struct_record_counts <- function(data, thresholds) {
 #' @noRd
 check_struct_missingness <- function(data, thresholds) {
   cols <- grep("^\\.", names(data), value = TRUE, invert = TRUE)
-  n_missing <- vapply(cols, function(v) sum(is.na(data[[v]])), integer(1))
-  tab <- tibble::tibble(
-    variable = cols,
-    n_missing = unname(n_missing),
-    pct_missing = round(100 * unname(n_missing) / nrow(data), 1)
+  evid <- suppressWarnings(as.numeric(data$EVID))
+  event <- ifelse(
+    evid %in% c(1, 4), "dose", ifelse(evid %in% 0, "observation", "other")
   )
+  covariates <- c(
+    continuous_covariates(data),
+    intersect(c("SEX", "RACE", "ETHNIC", "COUNTRY"), names(data))
+  )
+  always <- c("ID", "TIME", "EVID", "MDV", covariates)
+
+  tab <- dplyr::bind_rows(lapply(cols, function(v) {
+    miss <- is.na(data[[v]]) | trimws(as.character(data[[v]])) == ""
+    n_missing <- tapply(miss, event, sum)
+    n_records <- tapply(miss, event, length)
+    event_type <- names(n_missing)
+    tibble::tibble(
+      variable = v,
+      event_type = event_type,
+      n_missing = as.integer(n_missing),
+      pct_missing = round(100 * n_missing / as.numeric(n_records), 1),
+      unexpected = v %in% always | (v == "AMT" & event_type == "dose")
+    )
+  }))
   tab <- tab[tab$n_missing > 0, ]
-  result_pass(
-    message = paste0(nrow(tab), " variable(s) contain missing values."),
+  tab <- tab[order(!tab$unexpected, -tab$n_missing), ]
+
+  bad <- tab[tab$unexpected, ]
+  if (nrow(bad) == 0) {
+    return(result_pass(
+      message = paste0(
+        length(unique(tab$variable)),
+        " variable(s) contain missing values, all expected for the event type."
+      ),
+      summary_table = tab
+    ))
+  }
+  result_flag(
+    message = paste0(
+      "Unexpected missing values in: ",
+      paste(unique(bad$variable), collapse = ", "), "."
+    ),
+    n_flagged = length(unique(bad$variable)),
     summary_table = tab
   )
 }

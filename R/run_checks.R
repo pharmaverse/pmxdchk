@@ -12,7 +12,9 @@
 default_thresholds <- function() {
   list(
     outlier_nmad = 5,        # robust (MAD-based) cutoff for continuous outliers
-    min_quantifiable_n = 2   # minimum quantifiable PK records per subject/occasion
+    outlier_iqr_k = 3,       # boxplot fence multiplier for covariate outliers
+    min_quantifiable_n = 2,  # minimum quantifiable PK records per subject
+    predose_cmax_frac = 0.05 # predose cutoff as a fraction of Cmax
   )
 }
 
@@ -26,12 +28,14 @@ default_thresholds <- function() {
 #' @param mapping Optional named character vector mapping canonical variable
 #'   names to user column names (`c(ID = "USUBJID", TIME = "TAFD")`). When
 #'   `NULL`, columns are assumed to already use canonical names.
-#' @param thresholds A list of thresholds; see [default_thresholds()].
+#' @param thresholds A list of thresholds; see [default_thresholds()]. Elements
+#'   not supplied fall back to their defaults.
 #' @param study_type Character vector of confirmed study types used to gate
 #'   conditional checks. Defaults to `"All"`.
 #'
-#' @return A tibble with one row per check: `check_id`, `domain`, `severity`,
-#'   `status`, `n_flagged`, `message`. The full [new_check_result()] objects are
+#' @return A tibble with one row per check: `check_id`, `title`, `domain`,
+#'   `severity`, `status`, `n_flagged`, `message`. The full
+#'   [new_check_result()] objects are
 #'   attached as the `"results"` attribute for the app and reporting layers.
 #' @export
 #' @examples
@@ -43,6 +47,9 @@ default_thresholds <- function() {
 run_nmpk_checks <- function(data, mapping = NULL,
                             thresholds = default_thresholds(),
                             study_type = "All") {
+  defaults <- default_thresholds()
+  defaults[names(thresholds)] <- thresholds
+  thresholds <- defaults
   data <- apply_mapping(data, mapping)
   data[[".rowid"]] <- seq_len(nrow(data))
   specs <- order_checks(check_registry())
@@ -139,8 +146,12 @@ run_one_check <- function(spec, data, results, thresholds) {
     ))))
   }
 
+  args <- list(data, thresholds)
+  if ("results" %in% names(formals(spec$fn))) {
+    args$results <- results
+  }
   partial <- tryCatch(
-    spec$fn(data, thresholds),
+    do.call(spec$fn, args),
     error = function(e) {
       list(status = "error", message = conditionMessage(e), n_flagged = 0L)
     }
@@ -167,7 +178,9 @@ finalize_result <- function(spec, partial) {
     summary_table = partial$summary_table,
     flagged_records = partial$flagged_records,
     subject_list = partial$subject_list,
-    plot_data = partial$plot_data
+    plot_data = partial$plot_data,
+    rule = spec$rule,
+    guidance = spec$guidance
   )
 }
 
@@ -179,13 +192,15 @@ finalize_result <- function(spec, partial) {
 results_to_tibble <- function(results) {
   if (length(results) == 0) {
     return(tibble::tibble(
-      check_id = character(), domain = character(), severity = character(),
+      check_id = character(), title = character(), domain = character(),
+      severity = character(),
       status = character(), n_flagged = integer(), message = character()
     ))
   }
   purrr::map_dfr(results, function(r) {
     tibble::tibble(
       check_id = r$check_id,
+      title = r$title,
       domain = r$domain,
       severity = r$severity,
       status = r$status,

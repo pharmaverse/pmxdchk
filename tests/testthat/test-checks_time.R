@@ -38,6 +38,37 @@ test_that("CORE-TIME-003 treats negative predose obs as descriptive", {
   data$TIME[2] <- -0.5 # row 2 is an observation
   res <- check_time_negative(data, default_thresholds())
   expect_equal(res$status, "pass")
+  expect_equal(res$summary_table$assessment, "predose (expected)")
+})
+
+test_that("CORE-TIME-003 uses VISIT to confirm a predose sample", {
+  data <- make_clean_nmpk()
+  data$TIME[2] <- -0.5
+  data$VISIT <- "Day 1"
+  expect_equal(check_time_negative(data, default_thresholds())$status, "pass")
+  data$VISIT[2] <- "Day 8"
+  res <- check_time_negative(data, default_thresholds())
+  expect_equal(res$status, "flag")
+  expect_equal(res$flagged_records$issue, "not at the first-dose visit")
+})
+
+test_that("CORE-TIME-001 allows TIME to restart on a reset record", {
+  data <- dplyr::bind_rows(make_clean_nmpk(), make_clean_nmpk())
+  data <- data[order(data$ID), ]
+  expect_equal(
+    check_time_nondecreasing(data, default_thresholds())$status, "flag"
+  )
+  data$EVID[data$EVID == 1][c(2, 4)] <- 4
+  expect_equal(
+    check_time_nondecreasing(data, default_thresholds())$status, "pass"
+  )
+})
+
+test_that("CORE-TIME-004 ignores a deviation shared by a nominal time point", {
+  data <- make_multidose_nmpk()
+  data$TIME[data$NTIME == 0.5] <- 0.75 # every subject sampled late
+  res <- check_time_actual_nominal(data, default_thresholds())
+  expect_equal(res$status, "pass")
 })
 
 test_that("CORE-TIME-004 skips without nominal time", {

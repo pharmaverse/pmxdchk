@@ -1,9 +1,9 @@
 #' Infer likely study type(s) from an NMPK dataset
 #'
-#' Data-driven inference for `CORE-STUDYTYPE-001`, following the *Study Type Map*
-#' sheet of the QC checklist. Operates on a dataset already mapped to canonical
-#' variable names. The result is informational: the app presents it for user
-#' confirmation before checks are selected.
+#' Data-driven inference for `CORE-STUDYTYPE-001`, following the *Study Type
+#' Map* sheet of the QC checklist. Operates on a dataset already mapped to
+#' canonical variable names. The result is informational: the app presents it
+#' for user confirmation before checks are selected.
 #'
 #' @param data A data frame with canonical variable names.
 #' @return A tibble with columns `study_type`, `applicable` (logical), `reason`.
@@ -18,8 +18,12 @@ infer_study_type <- function(data) {
   nms <- names(data)
   has <- function(v) all(v %in% nms)
 
-  dose_rows <- if (has("EVID")) data$EVID %in% c(1, 4) else rep(FALSE, nrow(data))
-  doses_per_id <- if (has("ID") && any(dose_rows)) {
+  dose_rows <- if (has("EVID")) {
+    data$EVID %in% c(1, 4)
+  } else {
+    rep(FALSE, nrow(data))
+  }
+  doses_per_id <- if (has("ID") && any(dose_rows & !is.na(data$ID))) {
     max(table(data$ID[dose_rows]))
   } else {
     NA_integer_
@@ -27,18 +31,27 @@ infer_study_type <- function(data) {
 
   multiple_signals <- c(
     if (any(c("ADDL", "II", "SS") %in% nms)) "ADDL/II/SS present",
-    if (any(c("OCC", "DOSNO", "PERIOD") %in% nms)) "occasion/dose-number present",
-    if (!is.na(doses_per_id) && doses_per_id > 1) "repeated dose records per subject"
+    if (any(c("OCC", "DOSNO", "PERIOD") %in% nms)) {
+      "occasion/dose-number present"
+    },
+    if (!is.na(doses_per_id) && doses_per_id > 1) {
+      "repeated dose records per subject"
+    }
   )
   is_multiple <- length(multiple_signals) > 0
   is_single <- !is_multiple && !is.na(doses_per_id) && doses_per_id <= 1
 
   iv_signals <- c(
     if (any(c("RATE", "DUR") %in% nms)) "RATE/DUR present",
-    if (has("RATE") && any(data$RATE == -2, na.rm = TRUE)) "RATE = -2 convention"
+    if (has("RATE") && any(data$RATE == -2, na.rm = TRUE)) {
+      "RATE = -2 convention"
+    }
   )
-  multi_signals <- if (has("DVID") && dplyr::n_distinct(data$DVID) > 1) {
-    "multiple DVID groups"
+  obs_rows <- if (has("EVID")) data$EVID %in% 0 else rep(TRUE, nrow(data))
+  multi_signals <- if (
+    has("DVID") && dplyr::n_distinct(data$DVID[obs_rows], na.rm = TRUE) > 1
+  ) {
+    "multiple DVID groups among observations"
   } else {
     character()
   }
@@ -49,7 +62,11 @@ infer_study_type <- function(data) {
   }
 
   reason_or <- function(signals) {
-    if (length(signals) > 0) paste(signals, collapse = "; ") else "Not indicated."
+    if (length(signals) > 0) {
+      paste(signals, collapse = "; ")
+    } else {
+      "Not indicated."
+    }
   }
 
   tibble::tibble(
@@ -58,11 +75,16 @@ infer_study_type <- function(data) {
     ),
     applicable = c(
       TRUE, is_single, is_multiple,
-      length(iv_signals) > 0, length(multi_signals) > 0, length(integ_signals) > 0
+      length(iv_signals) > 0, length(multi_signals) > 0,
+      length(integ_signals) > 0
     ),
     reason = c(
       "Always applicable to a readable dataset.",
-      if (is_single) "At most one dose record per subject." else "Not indicated.",
+      if (is_single) {
+        "At most one dose record per subject."
+      } else {
+        "Not indicated."
+      },
       reason_or(multiple_signals),
       reason_or(iv_signals),
       reason_or(multi_signals),

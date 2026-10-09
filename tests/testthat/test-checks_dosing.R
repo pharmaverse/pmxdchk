@@ -76,3 +76,36 @@ test_that("CORE-DOSE-007 skips without SS", {
   res <- check_dose_ss(make_clean_nmpk(), default_thresholds())
   expect_equal(res$status, "skip")
 })
+
+test_that("CORE-DOSE-002 does not flag ordinary dose levels", {
+  data <- make_multidose_nmpk()
+  data$AMT[data$EVID == 1] <- c(100, 100, 100, 100, 200, 50)
+  res <- check_dose_distribution(data, default_thresholds())
+  expect_equal(res$status, "pass")
+  expect_equal(nrow(res$summary_table), 3L)
+})
+
+test_that("CORE-DOSE-006 rejects placeholder RATE and inconsistent DUR", {
+  data <- make_iv_nmpk()
+  data$RATE[data$ID == 1 & data$EVID == 1] <- -99
+  data$DUR[data$ID == 2 & data$EVID == 1] <- 3 # the implied duration is 10
+  res <- check_dose_rate_dur(data, default_thresholds())
+  expect_setequal(
+    res$flagged_records$issue,
+    c("negative RATE other than -1 or -2", "AMT / RATE differs from DUR")
+  )
+})
+
+test_that("CORE-DOSE-006 accepts RATE = -2 when no DUR column exists", {
+  data <- make_iv_nmpk()
+  data$DUR <- NULL
+  data$RATE[data$EVID == 1] <- -2
+  expect_equal(check_dose_rate_dur(data, default_thresholds())$status, "pass")
+})
+
+test_that("CORE-DOSE-005 flags ADDL on a non-dose record", {
+  data <- make_multidose_nmpk()
+  data$ADDL[2] <- 1
+  data$II[2] <- 24
+  expect_equal(check_dose_addl_ii(data, default_thresholds())$n_flagged, 1L)
+})
