@@ -46,7 +46,11 @@ findings_list <- function(df, states) {
   )
   data.frame(
     check = sprintf(
-      "%s<br><small class=\"text-muted\">%s</small>", df$title, df$check_id
+      paste0(
+        "<span class=\"fw-medium\">%s</span><br>",
+        "<small class=\"text-muted\">%s</small>"
+      ),
+      df$title, df$check_id
     ),
     severity = df$severity,
     result = ifelse(
@@ -71,58 +75,62 @@ mod_findings_ui <- function(id) {
   ns <- NS(id)
   tagList(
     uiOutput(ns("notice")),
-    bslib::layout_columns(
-      col_widths = c(5, 7),
-      fill = FALSE,
-      bslib::card(
-        bslib::card_header("Findings"),
-        uiOutput(ns("progress")),
-        radioButtons(
-          ns("show"), NULL,
-          choices = c("To review" = "review", "All" = "all"), inline = TRUE
-        ),
-        DT::DTOutput(ns("table"), fill = FALSE),
-        bslib::card_footer(
-          downloadButton(
-            ns("dl_findings"), "Findings with triage (CSV)",
-            class = "btn-sm btn-outline-secondary"
+    conditionalPanel(
+      "output.has_results", ns = ns,
+      bslib::layout_columns(
+        col_widths = bslib::breakpoints(lg = c(5, 7)),
+        fill = FALSE,
+        bslib::card(
+          bslib::card_header("Findings"),
+          uiOutput(ns("progress")),
+          radioButtons(
+            ns("show"), NULL,
+            choices = c("To review" = "review", "All" = "all"), inline = TRUE
           ),
-          downloadButton(
-            ns("dl_flagged"), "Flagged records (CSV)",
-            class = "btn-sm btn-outline-secondary"
-          )
-        )
-      ),
-      bslib::card(
-        full_screen = TRUE,
-        bslib::card_header("Finding detail"),
-        uiOutput(ns("detail_head")),
-        conditionalPanel(
-          "output.needs_triage", ns = ns,
-          div(
-            class = "border rounded p-3 mb-3",
-            div(
-              class = "d-flex justify-content-between align-items-start",
-              radioButtons(
-                ns("state"), "Your decision",
-                choices = c(
-                  "To review" = "untriaged", "Issue to fix" = "accept",
-                  "Not an issue" = "reject"
-                ),
-                inline = TRUE
-              ),
-              actionButton(
-                ns("next_finding"), "Next finding",
-                class = "btn-outline-primary btn-sm", icon = icon("arrow-down")
-              )
+          DT::DTOutput(ns("table"), fill = FALSE),
+          bslib::card_footer(
+            class = "d-flex flex-wrap gap-2",
+            downloadButton(
+              ns("dl_findings"), "Findings with triage (CSV)",
+              class = "btn-sm btn-outline-secondary"
             ),
-            textInput(
-              ns("comment"), NULL, width = "100%",
-              placeholder = "Comment (optional), saved as you type"
+            downloadButton(
+              ns("dl_flagged"), "Flagged records (CSV)",
+              class = "btn-sm btn-outline-secondary"
             )
           )
         ),
-        uiOutput(ns("detail_body"))
+        bslib::card(
+          full_screen = TRUE,
+          bslib::card_header("Finding detail"),
+          uiOutput(ns("detail_head")),
+          conditionalPanel(
+            "output.needs_triage", ns = ns,
+            div(
+              class = "decision",
+              div(
+                class = "d-flex justify-content-between align-items-start",
+                radioButtons(
+                  ns("state"), "Your decision",
+                  choices = c(
+                    "To review" = "untriaged", "Issue to fix" = "accept",
+                    "Not an issue" = "reject"
+                  ),
+                  inline = TRUE
+                ),
+                actionButton(
+                  ns("next_finding"), "Next finding",
+                  class = "btn-primary btn-sm", icon = icon("arrow-down")
+                )
+              ),
+              textInput(
+                ns("comment"), NULL, width = "100%",
+                placeholder = "Comment (optional), saved as you type"
+              )
+            )
+          ),
+          uiOutput(ns("detail_body"))
+        )
       )
     )
   )
@@ -156,6 +164,9 @@ mod_findings_server <- function(id, data_r, results_r) {
         ui_notice("Run checks on the Data tab to see the findings.")
       }
     })
+
+    output$has_results <- reactive(!is.null(results_r()))
+    outputOptions(output, "has_results", suspendWhenHidden = FALSE)
 
     # Flag-first, most severe first.
     findings <- reactive({
@@ -199,30 +210,31 @@ mod_findings_server <- function(id, data_r, results_r) {
       }
       done <- sum(states()[review$check_id] %in% c("accept", "reject"))
       n_sev <- function(s) sum(review$severity == s)
-      tagList(
+      div(
+        class = "mb-3",
         div(
-          class = "mb-2",
+          class = "d-flex flex-wrap align-items-center gap-1 mb-2",
           ui_badge(paste0(n_sev("Critical"), " Critical"), "danger"),
           ui_badge(paste0(n_sev("High"), " High"), "warning"),
-          ui_badge(paste0(n_sev("Medium"), " Medium"), "secondary")
+          ui_badge(paste0(n_sev("Medium"), " Medium"), "secondary"),
+          tags$span(
+            class = "ms-auto text-body-secondary small",
+            sprintf("%d of %d triaged", done, nrow(review))
+          )
         ),
         div(
-          class = "progress mb-1", style = "height: 8px;",
+          class = "progress", style = "height: 6px;",
           div(
             class = "progress-bar bg-success",
             style = sprintf("width: %.0f%%;", 100 * done / nrow(review))
           )
-        ),
-        tags$small(
-          class = "text-muted",
-          sprintf("%d of %d findings triaged", done, nrow(review))
         )
       )
     })
 
     output$table <- DT::renderDT({
       df <- listed()
-      table <- DT::datatable(
+      DT::datatable(
         findings_list(df, isolate(states())),
         colnames = c("Check", "Severity", "Result", "Triage", "status"),
         escape = -1,
@@ -236,12 +248,25 @@ mod_findings_server <- function(id, data_r, results_r) {
           ordering = FALSE,
           columnDefs = list(
             list(className = "text-nowrap", targets = 1:3),
+            list(render = severity_renderer(), targets = 1),
+            list(
+              render = pill_renderer(
+                c(flag = "danger", error = "danger", pass = "success"),
+                key_column = 4
+              ),
+              targets = 2
+            ),
+            list(
+              render = pill_renderer(
+                c("issue to fix" = "warning", "not an issue" = "success")
+              ),
+              targets = 3
+            ),
             list(visible = FALSE, targets = 4)
           )
         ),
         rownames = FALSE
       )
-      style_status(table, "result", "status")
     })
     proxy <- DT::dataTableProxy("table")
 
@@ -309,18 +334,18 @@ mod_findings_server <- function(id, data_r, results_r) {
       }
       r <- selected_result()
       tagList(
-        tags$h5(r$title),
+        tags$h5(class = "mb-2", r$title),
         div(
-          class = "mb-2",
+          class = "d-flex flex-wrap align-items-center gap-1 mb-3",
           ui_badge(r$severity, severity_type(r$severity)),
           switch(r$status,
-            flag = ui_badge(paste(r$n_flagged, "flagged"), "light"),
+            flag = ui_badge(paste(r$n_flagged, "flagged"), "danger"),
             pass = ui_badge("pass", "success"),
             ui_badge(r$status, "secondary")
           ),
-          tags$small(class = "text-muted", r$check_id)
+          tags$code(class = "text-body-secondary ms-1", r$check_id)
         ),
-        tags$p(tags$strong(r$message))
+        tags$p(class = "fw-medium", r$message)
       )
     })
 
@@ -336,25 +361,34 @@ mod_findings_server <- function(id, data_r, results_r) {
       )
       tables <- Filter(function(t) !is.null(t[[2]]) && nrow(t[[2]]) > 0, tables)
       tagList(
-        tags$p(tags$span(class = "text-muted", "What is checked: "), r$rule),
-        tags$p(tags$span(class = "text-muted", "What to do: "), r$guidance),
+        div(class = "detail-label", "What is checked"),
+        tags$p(r$rule),
+        div(class = "detail-label", "What to do"),
+        tags$p(r$guidance),
         if (finding_has_profile(r)) {
           tagList(
             div(
-              class = "d-flex align-items-end gap-2 mt-2",
+              class = "toolbar mt-3 mb-2",
               selectInput(
                 ns("subject"),
                 sprintf("Affected subject (%d)", length(affected())),
                 choices = affected(), selectize = FALSE, width = "220px"
               ),
               div(
-                class = "btn-group mb-3",
-                actionButton(ns("prev_subject"), "Previous"),
-                actionButton(ns("next_subject"), "Next")
+                class = "btn-group",
+                actionButton(
+                  ns("prev_subject"), "Previous", icon = icon("chevron-left"),
+                  class = "btn-outline-secondary"
+                ),
+                actionButton(
+                  ns("next_subject"), "Next", icon = icon("chevron-right"),
+                  class = "btn-outline-secondary"
+                )
               ),
               actionLink(
                 ns("to_profiles"), "Open in Profiles",
-                class = "mb-3 ms-auto"
+                icon = icon("arrow-up-right-from-square"),
+                class = "ms-auto pb-2"
               )
             ),
             plotOutput(ns("plot"), height = "340px")
@@ -362,7 +396,7 @@ mod_findings_server <- function(id, data_r, results_r) {
         },
         lapply(names(tables), function(key) {
           tagList(
-            tags$h6(class = "mt-3", tables[[key]][[1]]),
+            div(class = "detail-label mt-3", tables[[key]][[1]]),
             DT::DTOutput(ns(paste0("tbl_", key)), fill = FALSE)
           )
         })
@@ -388,7 +422,7 @@ mod_findings_server <- function(id, data_r, results_r) {
       p <- plot_subject_profile(sub, input$subject)
       validate(need(!is.null(p), "This subject has no observations to plot."))
       p
-    })
+    }, res = 96)
 
     detail_table <- function(get) {
       DT::renderDT({
@@ -396,7 +430,7 @@ mod_findings_server <- function(id, data_r, results_r) {
         req(!is.null(data), nrow(data) > 0)
         DT::datatable(
           signif_doubles(data),
-          class = "compact stripe nowrap",
+          class = "compact nowrap",
           options = list(pageLength = 10, scrollX = TRUE, dom = "tp"),
           rownames = FALSE
         )

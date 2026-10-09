@@ -9,7 +9,7 @@
 mod_check_studytype_ui <- function(id) {
   ns <- NS(id)
   bslib::card(
-    bslib::card_header("2. Confirm study type"),
+    bslib::card_header(ui_step(2, "Confirm study type")),
     uiOutput(ns("notice")),
     checkboxGroupInput(
       ns("confirmed"),
