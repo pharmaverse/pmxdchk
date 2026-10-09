@@ -3,9 +3,9 @@ Title: Data Visualization and Quality Checking for Pharmacometric Datasets
 Version: 0.0.0.9000
 Authors@R:
     person("Runcheng", "Li", email = "runchengli1994@gmail.com", role = c("aut", "cre"))
-Description: A Shiny application for visualization and data quality checking
-    of NONMEM and ADPPK pharmacometric datasets. Supports interactive checks,
-    individual and population PK plots, and exportable PDF reports.
+Description: Data quality checks for NONMEM-style and ADPPK pharmacometric
+    datasets, with a Shiny application to review the findings alongside
+    individual and population concentration-time profiles.
 License: Apache License (>= 2)
 URL: https://github.com/pharmaverse/pmxdchk
 BugReports: https://github.com/pharmaverse/pmxdchk/issues
@@ -21,12 +21,12 @@ Imports:
     purrr,
     readr,
     rlang,
-    rmarkdown,
     shiny,
     stats,
     tibble
 Suggests:
     pharmaverseadam,
+    rmarkdown,
     shinytest2,
     testthat (>= 3.0.0),
     knitr

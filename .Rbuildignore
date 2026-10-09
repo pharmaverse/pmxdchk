@@ -10,3 +10,7 @@ $run_dev.*
 ^CLAUDE\.md$
 ^\.github$
 ^LICENSE\.md$
+^\.claude$
+\.gitkeep$
+^\.lintr$
+^_shinylive$

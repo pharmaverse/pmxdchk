@@ -1,0 +1,9 @@
+linters: linters_with_defaults(
+    object_usage_linter = NULL
+  )
+exclusions: list(
+    "dev",
+    "data-raw",
+    "R/run_app.R" = list(object_name_linter = Inf)
+  )
+encoding: "UTF-8"

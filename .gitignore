@@ -52,3 +52,6 @@ rsconnect/
 CLAUDE.md
 .claude/
 AGENTS.md
+
+# Shinylive export (built by dev/make_shinylive.R)
+/_shinylive/
