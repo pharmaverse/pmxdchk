@@ -31,6 +31,41 @@ time_after_dose <- function(id, time, is_dose) {
   out
 }
 
+#' Shared look of the review plots
+#'
+#' @return A list of ggplot components.
+#' @noRd
+theme_review <- function() {
+  list(
+    ggplot2::theme_minimal(base_size = 11),
+    ggplot2::theme(
+      legend.position = "bottom",
+      panel.grid.minor = ggplot2::element_blank(),
+      plot.title = ggplot2::element_text(face = "bold"),
+      plot.subtitle = ggplot2::element_text(color = "grey40"),
+      plot.caption = ggplot2::element_text(color = "grey40"),
+      strip.text = ggplot2::element_text(face = "bold", hjust = 0)
+    )
+  )
+}
+
+#' Colour-blind safe discrete colour scale
+#'
+#' @param values The values mapped to colour.
+#' @return An Okabe-Ito colour scale, or `NULL` (the ggplot2 default) when
+#'   there are more levels than colours.
+#' @noRd
+scale_color_review <- function(values) {
+  palette <- c(
+    "#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9",
+    "#999999", "#000000"
+  )
+  if (length(unique(values)) > length(palette)) {
+    return(NULL)
+  }
+  ggplot2::scale_color_manual(values = palette)
+}
+
 #' Concentration-time profile of one subject
 #'
 #' @param sub The subject's records, with `TIME`, `DV`, `EVID`, `.group`, and a
@@ -65,18 +100,19 @@ plot_subject_profile <- function(sub, subject, log_y = TRUE) {
   p <- p + if (grouped) {
     list(
       ggplot2::geom_line(ggplot2::aes(color = .data$.group)),
-      ggplot2::geom_point(ggplot2::aes(color = .data$.group), size = 2.5)
+      ggplot2::geom_point(ggplot2::aes(color = .data$.group), size = 2),
+      scale_color_review(obs$.group)
     )
   } else {
     list(
-      ggplot2::geom_line(color = "grey40"),
-      ggplot2::geom_point(size = 2.5)
+      ggplot2::geom_line(color = "#0072B2"),
+      ggplot2::geom_point(color = "#0072B2", size = 2)
     )
   }
   p <- p +
     ggplot2::geom_point(
       data = obs[obs$flagged, , drop = FALSE],
-      shape = 21, size = 6, stroke = 1.5, color = "#d62728"
+      shape = 21, size = 5, stroke = 1.2, color = "#dc2626"
     ) +
     ggplot2::labs(
       x = "TIME", y = "DV", color = NULL,
@@ -88,8 +124,7 @@ plot_subject_profile <- function(sub, subject, log_y = TRUE) {
         )
       }
     ) +
-    ggplot2::theme_minimal(base_size = 14) +
-    ggplot2::theme(legend.position = "bottom")
+    theme_review()
   if (log_y) {
     p <- p + ggplot2::scale_y_log10()
   }
@@ -161,8 +196,12 @@ plot_population_profile <- function(data, time_axis = "first", color_by = "",
       x = if (time_axis == "last") "Time after dose" else "TIME",
       y = "DV", color = NULL
     ) +
-    ggplot2::theme_minimal(base_size = 14) +
-    ggplot2::theme(legend.position = "bottom")
+    theme_review()
+  if (colored) {
+    p <- p + scale_color_review(d$color) + ggplot2::guides(
+      color = ggplot2::guide_legend(override.aes = list(alpha = 1))
+    )
+  }
   if (length(unique(d$group)) > 1) {
     p <- p + ggplot2::facet_wrap(ggplot2::vars(.data$group), scales = "free_y")
   }

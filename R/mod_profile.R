@@ -11,48 +11,54 @@ mod_profile_ui <- function(id) {
   ns <- NS(id)
   tagList(
     uiOutput(ns("notice")),
-    bslib::card(
-      bslib::card_header("Subject"),
-      bslib::layout_columns(
-        col_widths = c(4, 3, 3, 2),
-        fill = FALSE,
+    conditionalPanel(
+      "output.has_data", ns = ns,
+      div(
+        class = "toolbar mb-3",
         selectInput(
           ns("show"), "Show subjects",
-          choices = c("All subjects" = "all"), selectize = FALSE
+          choices = c("All subjects" = "all"), selectize = FALSE,
+          width = "360px"
         ),
         selectizeInput(
-          ns("subject"), "Subject", choices = NULL,
+          ns("subject"), "Subject", choices = NULL, width = "200px",
           options = list(dropdownParent = "body")
         ),
         div(
-          class = "pt-4",
-          div(
-            class = "btn-group",
-            actionButton(ns("prev"), "Previous"),
-            actionButton(ns("nxt"), "Next")
+          class = "btn-group",
+          actionButton(
+            ns("prev"), "Previous", icon = icon("chevron-left"),
+            class = "btn-outline-secondary"
+          ),
+          actionButton(
+            ns("nxt"), "Next", icon = icon("chevron-right"),
+            class = "btn-outline-secondary"
           )
         ),
-        div(class = "pt-4", checkboxInput(ns("log_y"), "Log y-axis", TRUE))
+        div(class = "pb-2", uiOutput(ns("counter"))),
+        div(
+          class = "ms-auto pb-1",
+          checkboxInput(ns("log_y"), "Log y-axis", TRUE)
+        )
       ),
-      uiOutput(ns("counter"))
-    ),
-    bslib::layout_columns(
-      col_widths = c(7, 5),
+      bslib::layout_columns(
+        col_widths = bslib::breakpoints(lg = c(7, 5)),
+        bslib::card(
+          full_screen = TRUE,
+          bslib::card_header("Concentration-time profile"),
+          plotOutput(ns("plot"))
+        ),
+        bslib::card(
+          full_screen = TRUE,
+          bslib::card_header("Checks flagged for this subject"),
+          DT::DTOutput(ns("subject_checks"), fill = FALSE)
+        )
+      ),
       bslib::card(
         full_screen = TRUE,
-        bslib::card_header("Concentration-time profile"),
-        plotOutput(ns("plot"))
-      ),
-      bslib::card(
-        full_screen = TRUE,
-        bslib::card_header("Checks flagged for this subject"),
-        DT::DTOutput(ns("subject_checks"), fill = FALSE)
+        bslib::card_header("Event records"),
+        DT::DTOutput(ns("events"), fill = FALSE)
       )
-    ),
-    bslib::card(
-      full_screen = TRUE,
-      bslib::card_header("Event records"),
-      DT::DTOutput(ns("events"), fill = FALSE)
     )
   )
 }
@@ -84,6 +90,9 @@ mod_profile_server <- function(id, data_r, results_r,
       }
       NULL
     })
+
+    output$has_data <- reactive(!is.null(data_r()))
+    outputOptions(output, "has_data", suspendWhenHidden = FALSE)
 
     data_id <- reactive({
       req(data_r())
@@ -187,12 +196,12 @@ mod_profile_server <- function(id, data_r, results_r,
     output$counter <- renderUI({
       s <- subjects()
       if (length(s) == 0) {
-        return(tags$small(class = "text-muted", "No subjects match."))
+        return(tags$span(class = "text-body-secondary", "No subjects match."))
       }
       req(input$subject)
-      tags$small(
-        class = "text-muted",
-        sprintf("Subject %d of %d", match(input$subject, s), length(s))
+      tags$span(
+        class = "text-body-secondary",
+        sprintf("%d of %d", match(input$subject, s), length(s))
       )
     })
 
@@ -218,7 +227,7 @@ mod_profile_server <- function(id, data_r, results_r,
       p <- plot_subject_profile(current(), input$subject, isTRUE(input$log_y))
       validate(need(!is.null(p), "This subject has no observations to plot."))
       p
-    })
+    }, res = 96)
 
     output$subject_checks <- DT::renderDT({
       req(input$subject)
@@ -238,7 +247,10 @@ mod_profile_server <- function(id, data_r, results_r,
         class = "compact",
         options = list(
           pageLength = 6, dom = "tp",
-          columnDefs = list(list(className = "text-nowrap", targets = 0))
+          columnDefs = list(
+            list(className = "text-nowrap", targets = 0),
+            list(render = severity_renderer(), targets = 1)
+          )
         ),
         rownames = FALSE
       )
@@ -260,7 +272,7 @@ mod_profile_server <- function(id, data_r, results_r,
       table <- DT::datatable(
         events,
         class = "compact nowrap",
-        options = list(pageLength = 15, scrollX = TRUE),
+        options = list(pageLength = 15, scrollX = TRUE, dom = "frtip"),
         rownames = FALSE
       )
       DT::formatStyle(

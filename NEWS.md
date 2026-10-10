@@ -47,3 +47,7 @@
 * Profiles can be filtered by check; new Check library tab.
 * Results are cleared when another dataset is confirmed; a column can no longer
   be mapped to two variables.
+* New compact, neutral theme. The Data tab shows the three steps next to the
+  data preview; the status line stays visible while scrolling; the Findings tab
+  shows the number of checks to review; severity, result, and triage state are
+  shown as badges; plots use a colour-blind safe palette.

@@ -10,26 +10,21 @@ mod_data_upload_ui <- function(id) {
   ns <- NS(id)
   tagList(
     bslib::card(
-      bslib::card_header("1. Load data and map variables"),
-      bslib::layout_columns(
-        col_widths = c(6, 6),
-        fill = FALSE,
-        fileInput(
-          ns("file"), "NMPK dataset (delimited text: .csv, .txt, .dat)",
-          accept = c(".csv", ".txt", ".dat", ".tsv")
+      bslib::card_header(ui_step(1, "Load data and map variables")),
+      fileInput(
+        ns("file"), "NMPK dataset (delimited text: .csv, .txt, .dat)",
+        accept = c(".csv", ".txt", ".dat", ".tsv"), width = "100%"
+      ),
+      div(
+        class = "d-flex flex-wrap align-items-center gap-2 mb-3",
+        tags$span(class = "text-body-secondary small", "Or try an example:"),
+        actionButton(
+          ns("example_issues"), "Example with issues",
+          class = "btn-sm btn-outline-secondary"
         ),
-        div(
-          tags$label(class = "form-label", "No file at hand? Try an example"),
-          div(
-            actionButton(
-              ns("example_issues"), "Example with issues",
-              class = "btn-outline-primary"
-            ),
-            actionButton(
-              ns("example_clean"), "Clean example",
-              class = "btn-outline-secondary"
-            )
-          )
+        actionButton(
+          ns("example_clean"), "Clean example",
+          class = "btn-sm btn-outline-secondary"
         )
       ),
       uiOutput(ns("map_status")),
@@ -49,21 +44,29 @@ mod_data_upload_ui <- function(id) {
 #' @noRd
 mod_data_preview_ui <- function(id) {
   ns <- NS(id)
-  conditionalPanel(
-    "output.has_data", ns = ns,
-    bslib::card(
-      full_screen = TRUE,
-      bslib::card_header("Data preview"),
-      bslib::layout_columns(
-        col_widths = c(5, 7),
-        fill = FALSE,
+  bslib::card(
+    full_screen = TRUE,
+    bslib::card_header("Data preview"),
+    conditionalPanel(
+      "!output.has_data", ns = ns,
+      div(
+        class = "text-center text-body-secondary py-5",
+        icon("table", class = "fa-2x mb-3"),
+        tags$p("The loaded dataset appears here.")
+      )
+    ),
+    conditionalPanel(
+      "output.has_data", ns = ns,
+      div(
+        class = "toolbar mb-2",
         selectizeInput(
           ns("filter_col"), "Filter column",
-          choices = NULL, options = list(dropdownParent = "body")
+          choices = NULL, width = "220px",
+          options = list(dropdownParent = "body")
         ),
-        textInput(ns("filter_val"), "Contains")
+        textInput(ns("filter_val"), "Contains", width = "220px"),
+        div(class = "ms-auto", uiOutput(ns("preview_note")))
       ),
-      uiOutput(ns("preview_note")),
       DT::DTOutput(ns("preview"), fill = FALSE)
     )
   )
@@ -183,13 +186,13 @@ mod_data_upload_server <- function(id) {
         DT::datatable(
           preview_data(),
           extensions = "Buttons",
-          class = "compact stripe",
+          class = "compact nowrap",
           options = list(
             scrollX = TRUE,
-            scrollY = "350px",
+            scrollY = "55vh",
             scrollCollapse = TRUE,
             pageLength = 50,
-            dom = "Bfrtip",
+            dom = "Brtip",
             buttons = c("colvis", "csv")
           ),
           rownames = FALSE
@@ -207,17 +210,17 @@ mod_data_upload_server <- function(id) {
       n_core <- sum(core_vars %in% names(cm))
       missing <- core_missing()
       badges <- div(
-        class = "mb-2",
+        class = "d-flex flex-wrap align-items-center gap-1 mb-2",
         tags$strong(loaded()$name),
         tags$span(
-          class = "text-muted me-2",
-          sprintf(" \u2014 %d rows, %d columns", nrow(raw()), ncol(raw()))
+          class = "text-body-secondary me-2",
+          sprintf("%d rows \u00b7 %d columns", nrow(raw()), ncol(raw()))
         ),
         ui_badge(
           paste0("core variables ", n_core, "/", length(core_vars)),
           if (n_core == length(core_vars)) "success" else "warning"
         ),
-        ui_badge(paste0("optional ", length(cm) - n_core, " mapped"), "info")
+        ui_badge(paste0("optional ", length(cm) - n_core, " mapped"))
       )
       status <- if (length(reused()) > 0) {
         ui_notice(
@@ -259,7 +262,7 @@ mod_data_upload_server <- function(id) {
       if (!mapping_ok()) {
         btn$attribs$disabled <- "disabled"
       }
-      div(btn)
+      div(class = "mt-3", btn)
     })
 
     output$preview_note <- renderUI({

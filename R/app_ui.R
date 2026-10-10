@@ -12,31 +12,46 @@ app_ui <- function(request) {
       title = "pmxdchk",
       id = "main_nav",
       fillable = FALSE,
-      theme = bslib::bs_theme(version = 5),
+      theme = app_theme(),
+      navbar_options = bslib::navbar_options(underline = FALSE),
       header = uiOutput("status_bar"),
       bslib::nav_panel(
         "Data",
-        mod_data_upload_ui("upload"),
-        mod_check_studytype_ui("studytype"),
-        bslib::card(
-          bslib::card_header("3. Run checks"),
-          div(uiOutput("run_data_ui")),
-          helpText(
-            "Runs every check that applies to the confirmed study type and ",
-            "opens the findings."
-          ),
-          bslib::accordion(
-            open = FALSE,
-            bslib::accordion_panel(
-              "Thresholds (optional)", mod_settings_ui("settings"),
-              icon = icon("sliders")
+        bslib::layout_columns(
+          col_widths = bslib::breakpoints(lg = c(5, 7)),
+          fill = FALSE,
+          div(
+            mod_data_upload_ui("upload"),
+            mod_check_studytype_ui("studytype"),
+            bslib::card(
+              bslib::card_header(ui_step(3, "Run checks")),
+              div(
+                class = "d-flex align-items-center gap-3",
+                uiOutput("run_data_ui"),
+                tags$span(
+                  class = "text-body-secondary small",
+                  "Runs every check that applies to the confirmed study type ",
+                  "and opens the findings."
+                )
+              ),
+              bslib::accordion(
+                open = FALSE,
+                bslib::accordion_panel(
+                  "Thresholds (optional)", mod_settings_ui("settings"),
+                  icon = icon("sliders")
+                )
+              )
             )
-          )
-        ),
-        mod_data_preview_ui("upload")
+          ),
+          div(class = "sticky-pane", mod_data_preview_ui("upload"))
+        )
       ),
       bslib::nav_panel("Overview", mod_overview_ui("overview")),
-      bslib::nav_panel("Findings", mod_findings_ui("findings")),
+      bslib::nav_panel(
+        title = tagList("Findings", uiOutput("nav_findings", inline = TRUE)),
+        value = "Findings",
+        mod_findings_ui("findings")
+      ),
       bslib::nav_panel("Profiles", mod_profile_ui("profile")),
       bslib::nav_panel(
         "Check library",
@@ -55,6 +70,7 @@ app_ui <- function(request) {
       bslib::nav_panel(
         "About",
         bslib::card(
+          style = "max-width: 760px;",
           bslib::card_header("pmxdchk"),
           tags$p(
             "Data quality checking and review for NONMEM / ADPPK ",

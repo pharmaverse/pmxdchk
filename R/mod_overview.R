@@ -11,62 +11,55 @@ mod_overview_ui <- function(id) {
   ns <- NS(id)
   tagList(
     uiOutput(ns("notice")),
-    bslib::layout_column_wrap(
-      width = "170px",
-      fill = FALSE,
-      bslib::value_box(
-        "Subjects", textOutput(ns("n_subjects")),
-        showcase = icon("users")
-      ),
-      bslib::value_box(
-        "Records", textOutput(ns("n_records")),
-        showcase = icon("table-list")
-      ),
-      bslib::value_box(
-        "Observations", textOutput(ns("n_obs")),
-        showcase = icon("vial")
-      ),
-      bslib::value_box(
-        "Doses", textOutput(ns("n_doses")),
-        showcase = icon("syringe")
-      ),
-      bslib::value_box("BLQ % (obs)", textOutput(ns("blq_pct"))),
-      bslib::value_box("Missing DV % (obs)", textOutput(ns("miss_pct")))
-    ),
-    bslib::card(
-      full_screen = TRUE,
-      bslib::card_header("Concentration-time profiles, all subjects"),
-      bslib::layout_columns(
-        col_widths = c(4, 4, 4),
+    conditionalPanel(
+      "output.has_data", ns = ns,
+      bslib::layout_column_wrap(
+        width = "160px",
         fill = FALSE,
-        radioButtons(
-          ns("time_axis"), "Time axis",
-          choices = c("Since first dose" = "first", "After last dose" = "last"),
-          inline = TRUE
-        ),
-        selectInput(
-          ns("color_by"), "Colour by",
-          choices = c("(none)" = ""), selectize = FALSE
-        ),
-        div(class = "pt-4", checkboxInput(ns("log_y"), "Log y-axis", TRUE))
-      ),
-      plotOutput(ns("profiles"), height = "480px")
-    ),
-    bslib::layout_columns(
-      col_widths = c(3, 3, 6),
-      fill = FALSE,
-      bslib::card(
-        bslib::card_header("Dose levels"),
-        tableOutput(ns("dose_levels"))
-      ),
-      bslib::card(
-        bslib::card_header("Records by EVID / MDV"),
-        tableOutput(ns("evid_mdv"))
+        class = "mb-3",
+        ui_stat("Subjects", textOutput(ns("n_subjects")), "users"),
+        ui_stat("Records", textOutput(ns("n_records")), "table-list"),
+        ui_stat("Observations", textOutput(ns("n_obs")), "vial"),
+        ui_stat("Doses", textOutput(ns("n_doses")), "syringe"),
+        ui_stat("BLQ % (obs)", textOutput(ns("blq_pct")), "arrow-down"),
+        ui_stat("Missing DV % (obs)", textOutput(ns("miss_pct")), "ban")
       ),
       bslib::card(
         full_screen = TRUE,
-        bslib::card_header("Missing values by event type"),
-        DT::DTOutput(ns("missingness"), fill = FALSE)
+        bslib::card_header("Concentration-time profiles, all subjects"),
+        div(
+          class = "toolbar",
+          radioButtons(
+            ns("time_axis"), "Time axis",
+            choices = c(
+              "Since first dose" = "first", "After last dose" = "last"
+            ),
+            inline = TRUE
+          ),
+          selectInput(
+            ns("color_by"), "Colour by",
+            choices = c("(none)" = ""), selectize = FALSE, width = "220px"
+          ),
+          checkboxInput(ns("log_y"), "Log y-axis", TRUE)
+        ),
+        plotOutput(ns("profiles"), height = "460px")
+      ),
+      bslib::layout_columns(
+        col_widths = bslib::breakpoints(lg = c(3, 3, 6)),
+        fill = FALSE,
+        bslib::card(
+          bslib::card_header("Dose levels"),
+          tableOutput(ns("dose_levels"))
+        ),
+        bslib::card(
+          bslib::card_header("Records by EVID / MDV"),
+          tableOutput(ns("evid_mdv"))
+        ),
+        bslib::card(
+          full_screen = TRUE,
+          bslib::card_header("Missing values by event type"),
+          DT::DTOutput(ns("missingness"), fill = FALSE)
+        )
       )
     )
   )
@@ -87,6 +80,9 @@ mod_overview_server <- function(id, data_r) {
         )
       }
     })
+
+    output$has_data <- reactive(!is.null(data_r()))
+    outputOptions(output, "has_data", suspendWhenHidden = FALSE)
 
     evid <- reactive(suppressWarnings(as.numeric(data_r()$EVID)))
 
@@ -149,7 +145,7 @@ mod_overview_server <- function(id, data_r) {
       )
       validate(need(!is.null(p), "No observations to plot."))
       p
-    })
+    }, res = 96)
 
     output$dose_levels <- renderTable({
       req(data_r())
@@ -183,7 +179,12 @@ mod_overview_server <- function(id, data_r) {
         tab,
         colnames = c("Variable", "Event type", "Missing", "%", ""),
         class = "compact",
-        options = list(pageLength = 8, dom = "tp"),
+        options = list(
+          pageLength = 8, dom = "tp",
+          columnDefs = list(
+            list(render = pill_renderer(c(unexpected = "warning")), targets = 4)
+          )
+        ),
         rownames = FALSE
       )
     })

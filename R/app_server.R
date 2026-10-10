@@ -64,41 +64,49 @@ app_server <- function(input, output, session) {
       return(NULL)
     }
     res <- results_rv()
+    n_flag <- sum(res$status == "flag")
     state <- if (is.null(res)) {
-      "Checks not run yet."
+      ui_badge("Checks not run yet")
     } else if (isTRUE(stale())) {
-      "Study type or thresholds changed since the last run."
+      ui_badge("Study type or thresholds changed since the last run", "warning")
     } else {
-      sprintf(
-        "%d of %d checks flagged, run at %s.",
-        sum(res$status == "flag"), nrow(res),
-        format(last_run()$time, "%H:%M")
+      ui_badge(
+        sprintf(
+          "%d of %d checks flagged \u00b7 run at %s",
+          n_flag, nrow(res), format(last_run()$time, "%H:%M")
+        ),
+        if (n_flag > 0) "danger" else "success"
       )
     }
-    type <- if (isTRUE(stale())) "warning" else "light"
     urgent <- is.null(res) || isTRUE(stale())
     div(
-      class = paste0(
-        "alert alert-", type,
-        " d-flex align-items-center gap-3 py-2 mx-3 mt-3 mb-0"
-      ),
+      class = "app-status",
+      icon("database", class = "text-body-secondary"),
       tags$strong(upload()$name),
       tags$span(
+        class = "text-body-secondary",
         sprintf(
-          "%d subjects, %d records.",
-          dplyr::n_distinct(data_r()$ID), nrow(data_r())
-        ),
-        state
+          "%s subjects \u00b7 %s records",
+          format(dplyr::n_distinct(data_r()$ID), big.mark = ","),
+          format(nrow(data_r()), big.mark = ",")
+        )
       ),
+      state,
       actionButton(
         "run", if (is.null(res)) "Run checks" else "Re-run checks",
         class = paste(
           "btn-sm ms-auto",
-          if (urgent) "btn-primary" else "btn-outline-primary"
+          if (urgent) "btn-primary" else "btn-outline-secondary"
         ),
         icon = icon("play")
       )
     )
+  })
+
+  output$nav_findings <- renderUI({
+    res <- req(results_rv())
+    n <- sum(res$status %in% c("flag", "error"))
+    tags$span(class = badge_class(if (n > 0) "danger" else "success"), n)
   })
 
   results <- reactive(results_rv())
@@ -119,10 +127,14 @@ app_server <- function(input, output, session) {
         "What to do"
       ),
       filter = "top",
-      class = "compact stripe",
+      class = "compact",
       options = list(
-        paging = FALSE, scrollX = TRUE, dom = "ft",
-        columnDefs = list(list(className = "text-nowrap", targets = 0))
+        paging = FALSE, scrollX = TRUE, scrollY = "65vh", dom = "ft",
+        columnDefs = list(
+          list(className = "text-nowrap", targets = 0),
+          list(render = severity_renderer(), targets = 3),
+          list(width = "26%", targets = 5:6)
+        )
       ),
       rownames = FALSE
     )
